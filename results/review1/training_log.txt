@@ -1,0 +1,8 @@
+step=   0 train=6.9659 validation=6.9662 ppl=1060.21
+step=  50 train=6.0754 validation=6.0642 ppl=430.20
+step= 100 train=5.5011 validation=5.5687 ppl=262.09
+step= 150 train=5.1109 validation=5.2072 ppl=182.59
+step= 200 train=4.8512 validation=4.9958 ppl=147.79
+step= 250 train=4.6475 validation=4.8322 ppl=125.48
+step= 300 train=4.4891 validation=4.7414 ppl=114.60
+Saved results to runs/review1; best validation perplexity = 114.60

@@ -6,3 +6,6 @@ checkpoints/
 runs/
 *.bin
 *.pt
+.ipynb_checkpoints/
+.hf-cache/
+*.pyc

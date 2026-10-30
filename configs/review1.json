@@ -1,0 +1,35 @@
+{
+  "data": {
+    "loader": "rows",
+    "dataset": "HuggingFaceFW/fineweb-edu",
+    "subset": "sample-10BT",
+    "revision": "87f09149ef4734204d70ed1d046ddc9ca3f2b8f9",
+    "documents": 200,
+    "val_fraction": 0.15,
+    "seed": 42,
+    "vocab_size": 1024,
+    "seq_len": 128
+  },
+  "training": {
+    "seed": 42,
+    "model": {
+      "d_model": 128,
+      "n_layers": 2,
+      "n_heads": 4,
+      "mlp_multiple_of": 64
+    },
+    "batch_size": 8,
+    "steps": 300,
+    "eval_every": 50,
+    "train_eval_blocks": 32,
+    "learning_rate": 0.001,
+    "weight_decay": 0.01,
+    "gradient_clip": 1.0,
+    "cpu_threads": 4,
+    "prompts": [
+      "The purpose of education is",
+      "Water is important because",
+      "A computer can"
+    ]
+  }
+}
