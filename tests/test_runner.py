@@ -76,3 +76,19 @@ def test_smoke_report(data_dir, tmp_path):
     plan = rep.stage_plan(est, gpus=2, session_hours=11)
     assert [p["runs"] for p in plan] == [8, 9, 2]
     assert all(p["wall_hours"] >= p["gpu_hours"] / 2 for p in plan)
+
+
+def test_collect_results_copies_runs_and_data_meta(data_dir, tmp_path, monkeypatch):
+    runs = tmp_path / "runs"
+    for name in ("S_mamba_s0", "smoke_S_mamba_chunked"):
+        (runs / name).mkdir(parents=True)
+        (runs / name / "summary.json").write_text("{}")
+        (runs / name / "best.pt").write_bytes(b"weights")
+    res = tmp_path / "results"
+    monkeypatch.setattr("sys.argv", ["collect_results.py", "--runs", str(runs), "--results", str(res),
+                                     "--data", str(data_dir)])
+    _script("collect_results").main()
+    assert (res / "S" / "runs" / "S_mamba_s0" / "summary.json").exists()
+    assert not (res / "S" / "runs" / "S_mamba_s0" / "best.pt").exists()  # no weights in results
+    assert not list(res.rglob("smoke_*"))  # smoke runs are never collected
+    assert json.loads((res / "data" / "meta.json").read_text()) == json.loads((data_dir / "meta.json").read_text())

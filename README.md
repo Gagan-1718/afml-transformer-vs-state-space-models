@@ -43,6 +43,7 @@ configs/                 data.json and parameter-matched run configs
 scripts/                 make_configs, sweep_lr, smoke_report, collect_results, make_figures
 notebooks/run_study.ipynb   runs everything on a free Kaggle or Colab GPU
 tests/                   correctness tests (run these first)
+report/report.md         course report draft; result slots marked TODO(results) are filled from results/
 results/pilot/           the earlier 0.56M-parameter Review 1 pilot, kept for history
 ```
 
