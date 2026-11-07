@@ -10,7 +10,7 @@ win or lose: memory recall, long context, inference speed and memory?
 
 | ID | Experiment | Script |
 | --- | --- | --- |
-| E1 | Transformer vs Mamba vs Mamba-LTI at ~17M (3 seeds) and ~47M parameters, ~20 tokens/parameter | `afml/train.py` |
+| E1 | Transformer vs Mamba vs Mamba-LTI at ~47M (3 seeds) and ~98M parameters, ~20 tokens/parameter | `afml/train.py` |
 | E2 | Selectivity ablation: Mamba vs time-invariant Mamba (LM loss + selective copying) | `configs/*_mamba_lti.json`, `afml/eval/synthetic.py` |
 | E3 | Associative recall: MQAR grid, and test loss split into recall-hit vs other tokens | `afml/eval/synthetic.py`, `afml/eval/perplexity.py` |
 | E4 | Length extrapolation: per-position loss on PG-19 books up to 16K tokens (trained at 1K) | `afml/eval/long_context.py` |
@@ -20,11 +20,12 @@ win or lose: memory recall, long context, inference speed and memory?
 Model sizes (vocabulary 16,384; Mamba uses 2 layers per Transformer layer, `d_inner` matched by
 `scripts/make_configs.py`):
 
-| Scale | Width | Transformer | Mamba | Non-embedding params | Mismatch |
-| --- | --- | --- | --- | --- | --- |
-| S | 384 | 6 layers | 12 layers, d_inner 704 | 10.6M | 0.14% |
-| M | 512 | 12 layers | 24 layers, d_inner 968 | 38.5M | 0.22% |
-| L | 768 | 12 layers | 24 layers, d_inner 1440 | 85.0M | 0.11% |
+| Scale | Width | Transformer | Mamba | Non-embedding params | Total params | Mismatch | Training tokens | Role |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| S | 512 | 12 layers | 24 layers, d_inner 968 | 38.5M | ~47M | 0.22% | 940M | main study, 3 seeds |
+| M | 768 | 12 layers | 24 layers, d_inner 1440 | 85.0M | ~98M | 0.11% | 1.95B | scale check, 1 seed |
+
+The time-invariant ablation (Mamba-LTI, S only) uses d_inner 1032 (mismatch 0.20%).
 
 ## Code map
 
@@ -39,7 +40,7 @@ afml/
   train.py               trainer: warmup + cosine, AdamW, mixed precision, grad accumulation, resume, auto batch size
   eval/                  perplexity, long_context, synthetic, bench, analysis
 configs/                 data.json and parameter-matched run configs
-scripts/                 make_configs, sweep_lr, collect_results, make_figures
+scripts/                 make_configs, sweep_lr, smoke_report, collect_results, make_figures
 notebooks/run_study.ipynb   runs everything on a free Kaggle or Colab GPU
 tests/                   correctness tests (run these first)
 results/pilot/           the earlier 0.56M-parameter Review 1 pilot, kept for history
@@ -48,10 +49,11 @@ results/pilot/           the earlier 0.56M-parameter Review 1 pilot, kept for hi
 ### Why the chunked scan matters
 
 The original parallel scan keeps O(log L) tensors of size batch × length × d_inner × d_state for
-backpropagation: at the S size it used more than 7 GB for **two** sequences of 1,024 tokens and was
-killed. The chunked scan runs the same recurrence chunk by chunk under activation checkpointing; the
-whole S model then trains a 2 × 1,024 batch in 2.4 GB on CPU. Tests check that all scans agree with
-the step-by-step reference in outputs **and gradients**.
+backpropagation. On an earlier ~17M-parameter Mamba (width 384, 12 layers) it used more than 7 GB for
+**two** sequences of 1,024 tokens and was killed. The chunked scan runs the same recurrence chunk by
+chunk under activation checkpointing; that same ~17M model then trained a 2 × 1,024 batch in 2.4 GB
+on CPU. These numbers come from that earlier model, not from the current S and M sizes. Tests check
+that all scans agree with the step-by-step reference in outputs **and gradients**.
 
 ## Run it
 
@@ -66,16 +68,27 @@ python -m pytest -q
 about 30 free GPU-hours per week after phone verification) or Colab. Set `STAGES` in the first code
 cell, then run. Every stage is resumable.
 
-1. `data` — build the token files once (1–2 h).
-2. `sweep` — learning-rate sweep at scale S.
-3. `S` — 3 models × 3 seeds.
-4. `M` — 2 models × 1 seed.
+1. `data` — build the token files once: 2B training tokens (2–3 h).
+2. `smoke` — 20-step GPU check: speed, memory and time estimates for full runs.
+3. `sweep` — learning-rate sweep at scale S.
+4. `S` — 3 models × 3 seeds.
 5. `synthetic` — MQAR and selective-copying grids.
-6. `eval` — test perplexity, PG-19, efficiency, Δ analysis.
-7. `figures` — all figures, `table_main.md`, and `results.zip`.
+6. `eval` — test perplexity, PG-19, efficiency, Δ analysis (run again after `M`).
+7. `M` — 2 models × 1 seed.
+8. `figures` — all figures, `table_main.md`, and `results.zip`.
 
-On Kaggle: run each stage with *Save Version → Save & Run All* (Internet on, GPU on). Next session,
-*Add Input* → the previous version's output, so data and finished runs are reused.
+On Kaggle: run each stage with *Save Version → Save & Run All* (Internet on, GPU **T4 x2**). Next
+session, *Add Input* → the data version's output **and** the latest version's output, so data,
+finished runs and paused runs are reused.
+
+- **Both T4 GPUs are used:** independent runs train two at a time, one per GPU.
+- **No lost work at the 12-hour limit:** training pauses cleanly at `SESSION_HOURS` (default 11) by
+  saving `last.pt`, and resumes in the next session.
+- **The `data` stage needs no GPU:** run it in a CPU session to save GPU quota.
+- **Small outputs:** finished runs keep only `best.pt`; finished sweep and smoke runs keep no weights.
+- **Splitting work across team accounts:** set `ONLY_RUNS`, then add each other's outputs as inputs.
+- **The `smoke` stage measures real speed first:** `scripts/smoke_report.py` turns 20-step runs into
+  tokens/sec, micro-batch and peak memory, plus planning estimates of hours per run and per stage.
 
 Single commands, for reference:
 
@@ -93,7 +106,7 @@ python scripts/make_figures.py --results results --out results/figures
 - Perplexities compare only models sharing this tokenizer and test set.
 - Speed claims name the scan backend: pure-PyTorch Mamba is slower than the fused kernel, which is
   an implementation effect, not an architecture effect.
-- Results at 17–47M parameters may not hold at billions of parameters.
+- Results at 47–98M parameters (~20 tokens/parameter) may not hold at billions of parameters.
 
 ## References
 
