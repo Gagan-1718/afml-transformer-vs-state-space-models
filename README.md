@@ -1,62 +1,105 @@
-# Transformer versus selective state-space language models
+# Transformer vs selective state-space (Mamba) language models
 
-Team Abcd — AFML course project
+Team Abcd — AFML course project (UE24AM342AA1)
 
-We compare small Transformer and Mamba-style language models using matched data and training budgets. The final study will measure prediction quality and inference efficiency as sequence length increases.
+**Question.** At the same parameter count, training data and token budget, can a Mamba-style
+selective state-space model match a Transformer's language-modelling quality, and where does it
+win or lose: memory recall, long context, inference speed and memory?
 
-## Review 1 scope
+## What is in the study
 
-This branch prepares **one small Transformer training demo**. Mamba training and the full architectural comparison are later work. The existing model implementations are reused.
+| ID | Experiment | Script |
+| --- | --- | --- |
+| E1 | Transformer vs Mamba vs Mamba-LTI at ~17M (3 seeds) and ~47M parameters, ~20 tokens/parameter | `afml/train.py` |
+| E2 | Selectivity ablation: Mamba vs time-invariant Mamba (LM loss + selective copying) | `configs/*_mamba_lti.json`, `afml/eval/synthetic.py` |
+| E3 | Associative recall: MQAR grid, and test loss split into recall-hit vs other tokens | `afml/eval/synthetic.py`, `afml/eval/perplexity.py` |
+| E4 | Length extrapolation: per-position loss on PG-19 books up to 16K tokens (trained at 1K) | `afml/eval/long_context.py` |
+| E5 | Inference efficiency: prefill/decode latency, peak memory vs length, cached decoding | `afml/eval/bench.py` |
+| E6 | Mechanism: Mamba's step size Δ per token, memory horizon, attention maps | `afml/eval/analysis.py` |
 
-- Bounded FineWeb-Edu sample with separate training and validation documents.
-- Shared byte-level BPE tokenizer, trained only on the training split.
-- Small Transformer, training loop, validation, checkpoint saving and text generation.
-- Loss plot, measured pilot results and course-template presentation.
+Model sizes (vocabulary 16,384; Mamba uses 2 layers per Transformer layer, `d_inner` matched by
+`scripts/make_configs.py`):
 
-## Start here
+| Scale | Width | Transformer | Mamba | Non-embedding params | Mismatch |
+| --- | --- | --- | --- | --- | --- |
+| S | 384 | 6 layers | 12 layers, d_inner 704 | 10.6M | 0.14% |
+| M | 512 | 12 layers | 24 layers, d_inner 968 | 38.5M | 0.22% |
+| L | 768 | 12 layers | 24 layers, d_inner 1440 | 85.0M | 0.11% |
 
-[Open the guided notebook in Colab](https://colab.research.google.com/github/Gagan-1718/afml-transformer-vs-state-space-models/blob/review1/transformer-demo/notebooks/review1_transformer_demo.ipynb)
+## Code map
 
-Read [the project and code guide](docs/PROJECT_GUIDE.md) for a simple explanation of every stage, then [the presentation notes](docs/PRESENTATION_NOTES.md) to rehearse.
+```text
+afml/
+  config.py              model settings
+  models/transformer.py  pre-norm Transformer: RoPE, SwiGLU, RMSNorm, KV cache
+  models/mamba.py        Mamba-1 block; scans: sequential (reference), parallel, chunked (default), cuda (optional)
+  models/lm.py           shared LM wrapper, cached generation, weight-decay groups, FLOP estimate
+  data/build.py          FineWeb-Edu + PG-19 -> 16K BPE -> uint16 token files (hash-based train/val/test split)
+  data/loader.py         memory-mapped batches
+  train.py               trainer: warmup + cosine, AdamW, mixed precision, grad accumulation, resume, auto batch size
+  eval/                  perplexity, long_context, synthetic, bench, analysis
+configs/                 data.json and parameter-matched run configs
+scripts/                 make_configs, sweep_lr, collect_results, make_figures
+notebooks/run_study.ipynb   runs everything on a free Kaggle or Colab GPU
+tests/                   correctness tests (run these first)
+results/pilot/           the earlier 0.56M-parameter Review 1 pilot, kept for history
+```
 
-## Run locally
+### Why the chunked scan matters
 
-Use Python 3.12 and an isolated environment. Install the PyTorch build appropriate for your machine; CPU is sufficient for the small demo. The notebook uses the available Colab runtime.
+The original parallel scan keeps O(log L) tensors of size batch × length × d_inner × d_state for
+backpropagation: at the S size it used more than 7 GB for **two** sequences of 1,024 tokens and was
+killed. The chunked scan runs the same recurrence chunk by chunk under activation checkpointing; the
+whole S model then trains a 2 × 1,024 batch in 2.4 GB on CPU. Tests check that all scans agree with
+the step-by-step reference in outputs **and gradients**.
+
+## Run it
+
+**On your laptop (CPU): check everything works**
 
 ```bash
 python -m pip install -r requirements.txt
 python -m pytest -q
-python scripts/review1_demo.py prepare
-python scripts/review1_demo.py train --device auto
-python scripts/review1_demo.py generate --prompt "The student learned that"
 ```
 
-Run commands from the repository root. Preparation downloads a bounded sample through the dataset rows API, not the entire dataset. Training uses local prepared data. Existing non-empty data/run directories are protected; pass a fresh `--data-dir` or `--run-dir` when repeating an experiment.
+**On a free GPU: the real experiments.** Open `notebooks/run_study.ipynb` on Kaggle (recommended:
+about 30 free GPU-hours per week after phone verification) or Colab. Set `STAGES` in the first code
+cell, then run. Every stage is resumable.
 
-Settings are in [`configs/review1.json`](configs/review1.json): 200 source documents, 15% validation, 1,024-token vocabulary, 128-token context, two layers, width 128, four heads, and 300 optimizer updates.
+1. `data` — build the token files once (1–2 h).
+2. `sweep` — learning-rate sweep at scale S.
+3. `S` — 3 models × 3 seeds.
+4. `M` — 2 models × 1 seed.
+5. `synthetic` — MQAR and selective-copying grids.
+6. `eval` — test perplexity, PG-19, efficiency, Δ analysis.
+7. `figures` — all figures, `table_main.md`, and `results.zip`.
 
-## Outputs
+On Kaggle: run each stage with *Save Version → Save & Run All* (Internet on, GPU on). Next session,
+*Add Input* → the previous version's output, so data and finished runs are reused.
 
-| Location | Contents |
-| --- | --- |
-| `data/review1/` | Tokenizer, token windows and source/split manifest; ignored by Git |
-| `runs/review1/` | Best checkpoint, tokenizer, metrics CSV, summary, loss graph and sample text; ignored by Git |
-| `results/review1/` | Committed evidence from the recorded pilot, without raw dataset text or model weights |
-| `slides/` | Review 1 PowerPoint and readable slide notes |
+Single commands, for reference:
 
-The saved weights and tokenizer must stay together. Checkpoints are excluded from Git; train with the notebook or use the separately delivered demo archive.
+```bash
+python -m afml.data.build --config configs/data.json --out DATA
+python scripts/make_configs.py
+python -m afml.train --config configs/S_mamba.json --data DATA --out runs/S_mamba_s0 --set train.seed=0
+python -m afml.eval.perplexity --runs runs/S_* --data DATA --out results/S/perplexity.csv
+python scripts/make_figures.py --results results --out results/figures
+```
 
-## What the results mean
+## Honesty rules for results
 
-This is a tiny, single-seed pipeline experiment. Validation selects the checkpoint and is not an untouched final test set. Perplexity is comparable only with the same tokenizer and evaluation procedure. Generated text may be repetitive or incoherent. Mamba has not been trained on this dataset yet, so no architecture wins are claimed.
+- Validation picks checkpoints and learning rates; the **test** split is scored once at the end.
+- Perplexities compare only models sharing this tokenizer and test set.
+- Speed claims name the scan backend: pure-PyTorch Mamba is slower than the fused kernel, which is
+  an implementation effect, not an architecture effect.
+- Results at 17–47M parameters may not hold at billions of parameters.
 
-The existing Mamba module is a plain PyTorch selective-state implementation with sequential and parallel scans and a recurrent step. Its parallel scan materializes large tensors. It should not be treated as the optimized official Mamba kernel in later efficiency claims.
+## References
 
-## Dataset and references
-
-- [FineWeb-Edu dataset card and license information](https://huggingface.co/datasets/HuggingFaceFW/fineweb-edu)
-- [Mamba](https://arxiv.org/abs/2312.00752)
-- [S4](https://arxiv.org/abs/2111.00396)
-- [Mamba-2](https://arxiv.org/abs/2405.21060)
-
-The committed data manifest records the source revision and document hashes. Raw web documents are not redistributed in this repository. PG-19 remains optional; Dolly instruction tuning is outside the current submitted scope.
+- Gu & Dao (2023), [Mamba](https://arxiv.org/abs/2312.00752)
+- Gu, Goel & Ré (2021), [S4](https://arxiv.org/abs/2111.00396)
+- Dao & Gu (2024), [Mamba-2 / SSD](https://arxiv.org/abs/2405.21060)
+- Arora et al. (2023), [Zoology / MQAR](https://arxiv.org/abs/2312.04927)
+- Hoffmann et al. (2022), [Chinchilla](https://arxiv.org/abs/2203.15556)
+- Data: [FineWeb-Edu](https://huggingface.co/datasets/HuggingFaceFW/fineweb-edu), [PG-19](https://huggingface.co/datasets/deepmind/pg19) (Parquet copy: `emozilla/pg19`)

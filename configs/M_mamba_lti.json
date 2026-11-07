@@ -1,0 +1,19 @@
+{
+  "model": {
+    "arch": "mamba",
+    "d_model": 512,
+    "n_layers": 24,
+    "d_inner": 1032,
+    "d_state": 16,
+    "selective": false,
+    "scan": "auto"
+  },
+  "train": {
+    "seq_len": 1024,
+    "micro_batch": 16,
+    "grad_accum": 32,
+    "total_tokens": 940000000,
+    "lr": 0.0006,
+    "eval_every": 150
+  }
+}

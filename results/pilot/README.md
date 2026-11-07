@@ -1,6 +1,6 @@
-# Recorded Review 1 pilot
+# Review 1 pilot (history)
 
-Measured on 30 October 2026. This is an initial Transformer experiment, not a comparison with Mamba.
+Measured on 30 October 2026, before the full study. A 0.56M-parameter Transformer trained on 307K tokens; kept for history, superseded by the experiments in the main README.
 
 | Item | Recorded value |
 | --- | --- |
@@ -28,9 +28,7 @@ Generation is operational but the sample text is often incoherent. See `samples.
 ## Evidence
 
 - `metrics.csv`: measured loss and perplexity at each evaluation step.
-- `summary.json`: model settings, training settings, environment, results and samples.
 - `data_manifest.json`: dataset revision, exact document IDs/hashes and tokenizer hash.
-- `environment.txt`: the installed package versions for this CPU run, recorded for reference rather than as a portable Colab lockfile.
 - `tests.txt`: test-suite output.
 - `training_log.txt`: console log from the training run.
 

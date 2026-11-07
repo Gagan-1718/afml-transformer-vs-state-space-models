@@ -8,10 +8,10 @@ from ..config import ModelConfig
 from .common import RMSNorm
 
 
-def _rope_cache(seq_len: int, head_dim: int, base: float):
-    inv_freq = 1.0 / (base ** (torch.arange(0, head_dim, 2).float() / head_dim))
-    freqs = torch.outer(torch.arange(seq_len).float(), inv_freq)
-    emb = torch.cat([freqs, freqs], dim=-1)
+def _rope_table(start: int, length: int, head_dim: int, base: float, device=None):
+    inv_freq = 1.0 / (base ** (torch.arange(0, head_dim, 2, device=device).float() / head_dim))
+    pos = torch.arange(start, start + length, device=device).float()
+    emb = torch.outer(pos, inv_freq).repeat(1, 2)
     return emb.cos(), emb.sin()
 
 
@@ -29,22 +29,56 @@ class CausalSelfAttention(nn.Module):
         self.rope_base = cfg.rope_base
         self.qkv = nn.Linear(cfg.d_model, 3 * cfg.d_model, bias=False)
         self.out_proj = nn.Linear(cfg.d_model, cfg.d_model, bias=False)
-        cos, sin = _rope_cache(cfg.max_seq_len, self.head_dim, cfg.rope_base)
+        cos, sin = _rope_table(0, cfg.max_seq_len, self.head_dim, cfg.rope_base)
         self.register_buffer("cos", cos, persistent=False)
         self.register_buffer("sin", sin, persistent=False)
+        self.record_attention = False  # analysis only
+        self.last_attention = None
 
-    def forward(self, x):
-        b, t, d = x.shape
+    def _rope(self, start, t, device, dtype):
+        if start + t <= self.cos.shape[0]:
+            cos, sin = self.cos[start:start + t], self.sin[start:start + t]
+        else:  # beyond the cached length (length-extrapolation eval and long generation)
+            cos, sin = _rope_table(start, t, self.head_dim, self.rope_base, device)
+        return cos.to(dtype), sin.to(dtype)
+
+    def _qkv(self, x, start):
+        b, t, _ = x.shape
         q, k, v = self.qkv(x).view(b, t, 3, self.n_heads, self.head_dim).permute(2, 0, 3, 1, 4)
-        if t > self.cos.shape[0]:  # longer than max_seq_len (length-extrapolation eval)
-            cos, sin = _rope_cache(t, self.head_dim, self.rope_base)
-            cos, sin = cos.to(x.device), sin.to(x.device)
-        else:
-            cos, sin = self.cos[:t], self.sin[:t]
-        cos, sin = cos.to(q.dtype), sin.to(q.dtype)
-        q, k = _apply_rope(q, cos, sin), _apply_rope(k, cos, sin)
+        cos, sin = self._rope(start, t, x.device, q.dtype)
+        return _apply_rope(q, cos, sin), _apply_rope(k, cos, sin), v
+
+    def forward(self, x, cache=None):
+        b, t, d = x.shape
+        q, k, v = self._qkv(x, 0)
+        if self.record_attention:
+            scores = (q.float() @ k.float().transpose(-1, -2)) / math.sqrt(self.head_dim)
+            mask = torch.ones(t, t, dtype=torch.bool, device=x.device).triu(1)
+            self.last_attention = scores.masked_fill(mask, float("-inf")).softmax(-1).cpu()
+        if cache is not None:  # prefill: store keys and values for later decoding
+            cache["k"][:, :, :t] = k
+            cache["v"][:, :, :t] = v
+            cache["pos"] = t
         y = F.scaled_dot_product_attention(q, k, v, is_causal=True)
         return self.out_proj(y.transpose(1, 2).reshape(b, t, d))
+
+    def step(self, x, cache):
+        """x: (b, d_model), one new token at position cache['pos']."""
+        b, d = x.shape
+        p = cache["pos"]
+        if p >= cache["k"].shape[2]:
+            raise RuntimeError("KV cache is full; allocate a larger max_len")
+        q, k, v = self._qkv(x.unsqueeze(1), p)
+        cache["k"][:, :, p:p + 1] = k
+        cache["v"][:, :, p:p + 1] = v
+        cache["pos"] = p + 1
+        y = F.scaled_dot_product_attention(q, cache["k"][:, :, :p + 1], cache["v"][:, :, :p + 1])
+        return self.out_proj(y.reshape(b, d))
+
+    def init_cache(self, batch, max_len, device, dtype):
+        shape = (batch, self.n_heads, max_len, self.head_dim)
+        return {"k": torch.zeros(shape, device=device, dtype=dtype),
+                "v": torch.zeros(shape, device=device, dtype=dtype), "pos": 0}
 
 
 class SwiGLU(nn.Module):
@@ -68,6 +102,13 @@ class TransformerLayer(nn.Module):
         self.norm2 = RMSNorm(cfg.d_model)
         self.mlp = SwiGLU(cfg)
 
-    def forward(self, x):
-        x = x + self.attn(self.norm1(x))
+    def forward(self, x, cache=None):
+        x = x + self.attn(self.norm1(x), cache)
+        return x + self.mlp(self.norm2(x))
+
+    def init_cache(self, batch, max_len, device, dtype):
+        return self.attn.init_cache(batch, max_len, device, dtype)
+
+    def step(self, x, cache):
+        x = x + self.attn.step(self.norm1(x), cache)
         return x + self.mlp(self.norm2(x))

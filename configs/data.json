@@ -1,0 +1,18 @@
+{
+  "dataset": "HuggingFaceFW/fineweb-edu",
+  "subset": "sample-10BT",
+  "revision": "87f09149ef4734204d70ed1d046ddc9ca3f2b8f9",
+  "seed": 1234,
+  "shuffle_buffer": 10000,
+  "val_permille": 10,
+  "test_permille": 10,
+  "vocab_size": 16384,
+  "tokenizer_docs": 100000,
+  "train_tokens": 1500000000,
+  "val_tokens": 10000000,
+  "test_tokens": 10000000,
+  "pg19_dataset": "emozilla/pg19",
+  "pg19_books": 50,
+  "pg19_min_tokens": 16385,
+  "pg19_revision": null
+}

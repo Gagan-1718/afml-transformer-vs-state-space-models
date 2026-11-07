@@ -1,53 +1,126 @@
+"""Mamba-1 style selective state-space block with four interchangeable scan backends.
+
+Recurrence (per channel d and state index n):
+    h_t = exp(delta_t * A) * h_{t-1} + delta_t * B_t * u_t
+    y_t = C_t . h_t + D * u_t
+Shapes: u, delta (b, l, d) | A (d, n) | B, C (b, l, n) | D (d,) | h (b, d, n)
+
+Backends (all return (y, h_last) and must agree; see tests/test_scans.py):
+  sequential  one step at a time. The readable reference.
+  parallel    Hillis-Steele scan over the whole sequence. Fast for short inputs, but stores
+              O(log L) tensors of size (b, l, d, n) for backward, so it cannot train at L=1024.
+  chunked     splits the sequence into chunks, runs the parallel scan inside each chunk under
+              activation checkpointing and carries the state across chunks. Only (b, l, d) inputs
+              and (b, d, n) chunk-boundary states are kept for backward. Pure PyTorch; the default.
+  cuda        the official fused kernel from `mamba-ssm` (recomputes states in backward).
+"""
 import math
 
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from torch.utils.checkpoint import checkpoint
 
 from ..config import ModelConfig
 from .common import RMSNorm
 
-# Recurrence: h_t = exp(delta_t * A) * h_{t-1} + delta_t * B_t * u_t ;  y_t = C_t . h_t + D * u_t
-# Shapes: u, delta (b, l, d) | A (d, n) | B, C (b, l, n) | D (d,)
+try:  # optional: pip install mamba-ssm (needs a CUDA build matching your torch)
+    from mamba_ssm.ops.selective_scan_interface import selective_scan_fn as _cuda_scan_fn
+except Exception:  # noqa: BLE001 - any import failure means "not available"
+    _cuda_scan_fn = None
+
+HAS_CUDA_SCAN = _cuda_scan_fn is not None
 
 
-def selective_scan_sequential(u, delta, A, B, C, D):
-    """Reference implementation: one time step at a time. Slow, but easy to read and trust."""
+def _discretize(u, delta, A, B):
+    """(b, l, d), (b, l, d), (d, n), (b, l, n) -> decay a and input x, both (b, l, d, n)."""
+    a = torch.exp(delta.unsqueeze(-1) * A)
+    x = (delta * u).unsqueeze(-1) * B.unsqueeze(2)
+    return a, x
+
+
+def selective_scan_sequential(u, delta, A, B, C, D, h0=None):
     b, l, d = u.shape
-    dA = torch.exp(delta.unsqueeze(-1) * A)  # (b, l, d, n)
-    dBu = (delta * u).unsqueeze(-1) * B.unsqueeze(2)  # (b, l, d, n)
-    h = u.new_zeros(b, d, A.shape[1])
+    a, x = _discretize(u, delta, A, B)
+    h = u.new_zeros(b, d, A.shape[1]) if h0 is None else h0
     ys = []
     for t in range(l):
-        h = dA[:, t] * h + dBu[:, t]
+        h = a[:, t] * h + x[:, t]
         ys.append(torch.einsum("bdn,bn->bd", h, C[:, t]))
-    return torch.stack(ys, dim=1) + u * D
+    return torch.stack(ys, dim=1) + u * D, h
 
 
-def selective_scan_parallel(u, delta, A, B, C, D):
-    """Parallel (Hillis-Steele) scan over the affine maps h -> a*h + b, which compose associatively:
-    (a2, b2) o (a1, b1) = (a2*a1, a2*b1 + b2). O(log l) sequential steps instead of l.
-    Memory-hungry (materialises (b, l, d, n)); fine for tests and small runs."""
-    l = u.shape[1]
-    a = torch.exp(delta.unsqueeze(-1) * A)
-    h = (delta * u).unsqueeze(-1) * B.unsqueeze(2)
+def _hillis_steele(a, x):
+    """Inclusive scan of the affine maps h -> a*h + x along dim 1.
+    (a2, x2) o (a1, x1) = (a2*a1, a2*x1 + x2). Returns (prod of a, state from h0 = 0)."""
+    l = a.shape[1]
     shift = 1
     while shift < l:
-        a_prev = torch.cat([torch.ones_like(a[:, :shift]), a[:, :-shift]], dim=1)
-        h_prev = torch.cat([torch.zeros_like(h[:, :shift]), h[:, :-shift]], dim=1)
-        h = a * h_prev + h
+        a_prev = F.pad(a[:, :-shift], (0, 0, 0, 0, shift, 0), value=1.0)
+        x_prev = F.pad(x[:, :-shift], (0, 0, 0, 0, shift, 0), value=0.0)
+        x = a * x_prev + x
         a = a * a_prev
         shift *= 2
-    return torch.einsum("bldn,bln->bld", h, C) + u * D
+    return a, x
+
+
+def selective_scan_parallel(u, delta, A, B, C, D, h0=None):
+    a, x = _discretize(u, delta, A, B)
+    a_cum, h = _hillis_steele(a, x)
+    if h0 is not None:
+        h = h + a_cum * h0.unsqueeze(1)
+    return torch.einsum("bldn,bln->bld", h, C) + u * D, h[:, -1]
+
+
+def _scan_chunk(u, delta, A, B, C, h0):
+    a, x = _discretize(u, delta, A, B)
+    a_cum, h = _hillis_steele(a, x)
+    h = h + a_cum * h0.unsqueeze(1)
+    return torch.einsum("bldn,bln->bld", h, C), h[:, -1]
+
+
+def selective_scan_chunked(u, delta, A, B, C, D, h0=None, chunk_size=64):
+    b, l, d = u.shape
+    h = u.new_zeros(b, d, A.shape[1]) if h0 is None else h0
+    use_ckpt = torch.is_grad_enabled() and any(
+        t.requires_grad for t in (u, delta, A, B, C, h))
+    ys = []
+    for s in range(0, l, chunk_size):
+        args = (u[:, s:s + chunk_size], delta[:, s:s + chunk_size], A,
+                B[:, s:s + chunk_size], C[:, s:s + chunk_size], h)
+        if use_ckpt:
+            y, h = checkpoint(_scan_chunk, *args, use_reentrant=False)
+        else:
+            y, h = _scan_chunk(*args)
+        ys.append(y)
+    return torch.cat(ys, dim=1) + u * D, h
+
+
+def selective_scan_cuda(u, delta, A, B, C, D, h0=None):
+    if _cuda_scan_fn is None:
+        raise RuntimeError("scan='cuda' needs the mamba-ssm package (pip install mamba-ssm)")
+    if h0 is not None:
+        raise NotImplementedError("the fused kernel starts from a zero state")
+    y, h = _cuda_scan_fn(
+        u.transpose(1, 2).contiguous(), delta.transpose(1, 2).contiguous(), A.contiguous(),
+        B.transpose(1, 2).contiguous(), C.transpose(1, 2).contiguous(), D.contiguous(),
+        return_last_state=True,
+    )
+    return y.transpose(1, 2), h
 
 
 def selective_scan_step(h, u, delta, A, B, C, D):
-    """One recurrent step for decoding. h (b, d, n) | u, delta (b, d) | B, C (b, n)."""
+    """One recurrent decoding step. h (b, d, n) | u, delta (b, d) | B, C (b, n)."""
     h = torch.exp(delta.unsqueeze(-1) * A) * h + (delta * u).unsqueeze(-1) * B.unsqueeze(1)
     return h, torch.einsum("bdn,bn->bd", h, C) + u * D
 
 
-SCANS = {"sequential": selective_scan_sequential, "parallel": selective_scan_parallel}
+SCANS = {
+    "sequential": selective_scan_sequential,
+    "parallel": selective_scan_parallel,
+    "chunked": selective_scan_chunked,
+    "cuda": selective_scan_cuda,
+}
 
 
 def _inv_softplus_dt(d: int, lo: float = 1e-3, hi: float = 1e-1):
@@ -62,7 +135,9 @@ class MambaBlock(nn.Module):
         d, di, n = cfg.d_model, cfg.inner, cfg.d_state
         self.d_inner, self.d_state, self.d_conv, self.rank = di, n, cfg.d_conv, cfg.rank
         self.selective = cfg.selective
-        self.scan = SCANS[cfg.scan]
+        self.scan_name, self.chunk_size = cfg.scan, cfg.chunk_size
+        if self.scan_name not in ("auto", *SCANS):
+            raise ValueError(f"unknown scan {self.scan_name!r}")
 
         self.in_proj = nn.Linear(d, 2 * di, bias=False)  # -> (x, z)
         self.conv1d = nn.Conv1d(di, di, cfg.d_conv, groups=di, padding=cfg.d_conv - 1)
@@ -70,6 +145,8 @@ class MambaBlock(nn.Module):
         # A = -exp(A_log) is diagonal and negative real (S4D-real init: -1..-n), so exp(delta*A) in (0, 1)
         self.A_log = nn.Parameter(torch.log(torch.arange(1, n + 1, dtype=torch.float32)).repeat(di, 1))
         self.D = nn.Parameter(torch.ones(di))
+        self.A_log._no_weight_decay = True
+        self.D._no_weight_decay = True
 
         dt_bias = _inv_softplus_dt(di)
         if cfg.selective:
@@ -79,10 +156,15 @@ class MambaBlock(nn.Module):
             nn.init.uniform_(self.dt_proj.weight, -self.rank**-0.5, self.rank**-0.5)
             with torch.no_grad():
                 self.dt_proj.bias.copy_(dt_bias)
+            self.dt_proj.bias._no_weight_decay = True
         else:  # ablation: delta, B, C are learned constants, so the SSM is linear time-invariant
             self.dt_bias = nn.Parameter(dt_bias)
             self.B_const = nn.Parameter(torch.ones(n))
             self.C_const = nn.Parameter(torch.randn(n) / math.sqrt(n))
+            for p in (self.dt_bias, self.B_const, self.C_const):
+                p._no_weight_decay = True
+        self.last_delta = None  # filled when record_delta is True (analysis only)
+        self.record_delta = False
 
     def _ssm_params(self, x):
         """x: (b, l, d_inner) -> delta (b, l, d_inner), B (b, l, n), C (b, l, n)."""
@@ -96,33 +178,58 @@ class MambaBlock(nn.Module):
             self.C_const.expand(b, l, -1),
         )
 
-    def forward(self, x):
+    def _pick_scan(self, x):
+        if self.scan_name != "auto":
+            return self.scan_name
+        return "cuda" if (HAS_CUDA_SCAN and x.is_cuda) else "chunked"
+
+    def _scan(self, name, *args):
+        if name == "chunked":
+            return selective_scan_chunked(*args, chunk_size=self.chunk_size)
+        return SCANS[name](*args)
+
+    def forward(self, x, return_state=False):
         l = x.shape[1]
-        xi, z = self.in_proj(x).chunk(2, dim=-1)
-        xi = F.silu(self.conv1d(xi.transpose(1, 2))[..., :l].transpose(1, 2))  # causal depthwise conv
+        xz = self.in_proj(x)
+        x_raw, z = xz.chunk(2, dim=-1)
+        xi = F.silu(self.conv1d(x_raw.transpose(1, 2))[..., :l].transpose(1, 2))  # causal depthwise conv
         delta, B, C = self._ssm_params(xi)
-        A = -torch.exp(self.A_log.float())
-        y = self.scan(xi.float(), delta.float(), A, B.float(), C.float(), self.D.float())
-        return self.out_proj(y.to(z.dtype) * F.silu(z))
+        if self.record_delta:
+            self.last_delta = delta.detach().float().cpu()
+        with torch.autocast(device_type=x.device.type, enabled=False):  # the scan stays in fp32
+            A = -torch.exp(self.A_log.float())
+            y, h = self._scan(self._pick_scan(x), xi.float(), delta.float(), A, B.float(), C.float(),
+                              self.D.float())
+        out = self.out_proj(y.to(z.dtype) * F.silu(z))
+        if not return_state:
+            return out
+        conv_state = x_raw.transpose(1, 2)[..., -self.d_conv:]
+        if conv_state.shape[-1] < self.d_conv:
+            conv_state = F.pad(conv_state, (self.d_conv - conv_state.shape[-1], 0))
+        return out, (conv_state.float().contiguous(), h.float())
 
     def init_state(self, batch: int, device=None, dtype=torch.float32):
         return (
-            torch.zeros(batch, self.d_inner, self.d_conv, device=device, dtype=dtype),  # conv window
-            torch.zeros(batch, self.d_inner, self.d_state, device=device, dtype=torch.float32),  # SSM state
+            torch.zeros(batch, self.d_inner, self.d_conv, device=device, dtype=torch.float32),
+            torch.zeros(batch, self.d_inner, self.d_state, device=device, dtype=torch.float32),
         )
 
     def step(self, x, state):
-        """Recurrent decode, O(1) per token. x: (b, d_model) -> (y (b, d_model), new_state)."""
+        """Recurrent decode, O(1) memory per token. x: (b, d_model) -> (y (b, d_model), new_state)."""
         conv_state, h = state
         xi, z = self.in_proj(x).chunk(2, dim=-1)
-        conv_state = torch.cat([conv_state[:, :, 1:], xi.unsqueeze(-1).to(conv_state.dtype)], dim=-1)
-        xi = F.silu((conv_state * self.conv1d.weight.squeeze(1)).sum(-1) + self.conv1d.bias)
-        delta, B, C = self._ssm_params(xi.unsqueeze(1))
-        A = -torch.exp(self.A_log.float())
-        h, y = selective_scan_step(
-            h, xi.float(), delta[:, 0].float(), A, B[:, 0].float(), C[:, 0].float(), self.D.float()
-        )
+        conv_state = torch.cat([conv_state[:, :, 1:], xi.unsqueeze(-1).float()], dim=-1)
+        w = self.conv1d.weight.squeeze(1).float()
+        xi = F.silu((conv_state * w).sum(-1) + self.conv1d.bias.float())
+        delta, B, C = self._ssm_params(xi.to(self.in_proj.weight.dtype).unsqueeze(1))
+        with torch.autocast(device_type=x.device.type, enabled=False):
+            A = -torch.exp(self.A_log.float())
+            h, y = selective_scan_step(h, xi.float(), delta[:, 0].float(), A, B[:, 0].float(),
+                                       C[:, 0].float(), self.D.float())
         return self.out_proj(y.to(z.dtype) * F.silu(z)), (conv_state, h)
+
+    def state_bytes(self, batch: int = 1, bytes_per=4) -> int:
+        return batch * self.d_inner * (self.d_state + self.d_conv) * bytes_per
 
 
 class MambaLayer(nn.Module):
@@ -131,12 +238,16 @@ class MambaLayer(nn.Module):
         self.norm = RMSNorm(cfg.d_model)
         self.block = MambaBlock(cfg)
 
-    def forward(self, x):
-        return x + self.block(self.norm(x))
+    def forward(self, x, cache=None):
+        if cache is None:
+            return x + self.block(self.norm(x))
+        y, state = self.block(self.norm(x), return_state=True)
+        cache["state"] = state
+        return x + y
 
-    def init_state(self, *args, **kwargs):
-        return self.block.init_state(*args, **kwargs)
+    def init_cache(self, batch, max_len, device, dtype):
+        return {"state": self.block.init_state(batch, device)}
 
-    def step(self, x, state):
-        y, state = self.block.step(self.norm(x), state)
-        return x + y, state
+    def step(self, x, cache):
+        y, cache["state"] = self.block.step(self.norm(x), cache["state"])
+        return x + y

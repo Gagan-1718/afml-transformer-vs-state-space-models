@@ -1,8 +1,10 @@
-torch
-numpy
-datasets
-tokenizers
-matplotlib
-tqdm
-pytest
-huggingface-hub
+torch>=2.3
+numpy>=1.26
+tokenizers>=0.19
+datasets>=2.19
+matplotlib>=3.8
+pytest>=8.0
+# optional: experiment tracking (set train.wandb_project in a config)
+# wandb
+# optional, GPU only: fused Mamba kernel
+# mamba-ssm

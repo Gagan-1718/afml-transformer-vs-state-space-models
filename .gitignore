@@ -2,10 +2,8 @@
 __pycache__/
 .pytest_cache/
 data/
-checkpoints/
 runs/
-*.bin
 *.pt
+*.bin
+*.npy
 .ipynb_checkpoints/
-.hf-cache/
-*.pyc
