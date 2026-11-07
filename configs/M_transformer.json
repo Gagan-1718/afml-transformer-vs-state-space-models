@@ -1,16 +1,16 @@
 {
   "model": {
     "arch": "transformer",
-    "d_model": 512,
+    "d_model": 768,
     "n_layers": 12,
-    "n_heads": 8
+    "n_heads": 12
   },
   "train": {
     "seq_len": 1024,
-    "micro_batch": 16,
-    "grad_accum": 32,
-    "total_tokens": 940000000,
-    "lr": 0.0006,
+    "micro_batch": 8,
+    "grad_accum": 64,
+    "total_tokens": 1950000000,
+    "lr": 0.0004,
     "eval_every": 150
   }
 }

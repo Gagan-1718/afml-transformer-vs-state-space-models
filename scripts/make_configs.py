@@ -1,4 +1,4 @@
-"""Write parameter-matched run configs: configs/{S,M,L}_{transformer,mamba,mamba_lti}.json.
+"""Write parameter-matched run configs: configs/{S,M}_{transformer,mamba,mamba_lti}.json.
 
 Mamba uses 2 layers per Transformer layer (one Mamba block replaces attention + MLP), and d_inner
 is binary-searched so its non-embedding parameter count matches the Transformer's.
@@ -17,12 +17,10 @@ from afml.models import ModelConfig, build_model, count_params  # noqa: E402
 
 VOCAB = 16384
 SCALES = {
-    #      d_model, tf_layers, heads, train settings
-    "S": (384, 6, 6, {"micro_batch": 16, "grad_accum": 16, "total_tokens": 340_000_000, "lr": 1e-3,
-                      "eval_every": 100}),
-    "M": (512, 12, 8, {"micro_batch": 16, "grad_accum": 32, "total_tokens": 940_000_000, "lr": 6e-4,
+    #      d_model, tf_layers, heads, train settings (~20 training tokens per parameter)
+    "S": (512, 12, 8, {"micro_batch": 16, "grad_accum": 32, "total_tokens": 940_000_000, "lr": 6e-4,
                        "eval_every": 150}),
-    "L": (768, 12, 12, {"micro_batch": 8, "grad_accum": 64, "total_tokens": 1_500_000_000, "lr": 4e-4,
+    "M": (768, 12, 12, {"micro_batch": 8, "grad_accum": 64, "total_tokens": 1_950_000_000, "lr": 4e-4,
                         "eval_every": 150}),
 }
 
