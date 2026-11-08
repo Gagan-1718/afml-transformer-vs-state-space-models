@@ -10,6 +10,11 @@ Every sweep run warms up for as many steps as the full run (51 at S), not 2% of 
 with 2% (4 steps) high learning rates blew up and the sweep favoured the lowest LR. A run whose loss
 becomes NaN/inf writes diverged.json; it is recorded as "diverged" (that LR is too high) and skipped
 when picking the best LR, instead of stopping the sweep.
+
+Tie rule: learning rates whose validation loss is within TIE_TOLERANCE of the best count as tied, and the
+lowest tied LR is used. The full run is about 11x longer than a sweep run, longer runs favour lower LRs,
+and a lower LR is less likely to blow up in fp16. (Added after sweep v2, where Mamba at 1.2e-3 and 2.4e-3
+differed by 0.0008.) The notebook recomputes best_lr.json from lr_sweep.csv with best_from_csv().
 """
 import argparse
 import csv
@@ -26,6 +31,7 @@ from afml.train import DIVERGED_EXIT_CODE, PAUSED_EXIT_CODE, load_config, planne
 # The Transformer also gets 1.5e-4: in the first sweep (4 warmup steps) its best LR was the lowest tried.
 DEFAULT_LRS = {"transformer": [1.5e-4, 3e-4, 6e-4, 1.2e-3, 2.4e-3], "mamba": [3e-4, 6e-4, 1.2e-3, 2.4e-3]}
 DEFAULT_TOKENS = 30_000_000  # ~228 steps at S; ~0.3-0.5 h (Transformer) or ~0.75 h (Mamba) per run on a T4
+TIE_TOLERANCE = 0.01  # validation-loss differences smaller than this are treated as noise
 
 
 def lrs_for(lrs, arch):
@@ -58,6 +64,40 @@ def sweep_jobs(scale, archs, lrs, tokens, data, runs, stop_at=None):
 
 def finished(out):
     return (Path(out) / "summary.json").exists() or (Path(out) / "diverged.json").exists()
+
+
+def choose_lrs(rows):
+    """({arch: chosen LR}, [notes]) from sweep rows (dicts as in lr_sweep.csv; values may be strings)."""
+    best, notes = {}, []
+    for arch in dict.fromkeys(r["arch"] for r in rows):
+        mine = [r for r in rows if r["arch"] == arch]
+        ok = [r for r in mine if r.get("status", "ok") == "ok"]
+        if not ok:
+            raise SystemExit(f"every {arch} sweep run diverged: rerun with lower --lrs")
+        low = min(float(r["best_val_loss"]) for r in ok)
+        tied = sorted(float(r["lr"]) for r in ok if float(r["best_val_loss"]) <= low + TIE_TOLERANCE)
+        best[arch] = tied[0]
+        grid = [float(r["lr"]) for r in mine]
+        diverged = [float(r["lr"]) for r in mine if r.get("status", "ok") != "ok"]
+        if diverged:
+            notes.append(f"{arch}: diverged (LR too high) at {diverged}")
+        if len(tied) > 1:
+            notes.append(f"{arch}: LRs {tied} are within {TIE_TOLERANCE} of the best validation loss "
+                         f"(tied); using the lowest, {best[arch]:g}")
+        if best[arch] in (min(grid), max(grid)):  # an edge winner means the sweep range was too narrow
+            notes.append(f"WARNING: chosen LR for {arch} is at the edge of the sweep; extend --lrs")
+    if "mamba" in best:
+        best.setdefault("mamba_lti", best["mamba"])
+    return best, notes
+
+
+def best_from_csv(path):
+    """Chosen LRs from a finished sweep's lr_sweep.csv (prints the notes). Used by the notebook."""
+    with open(path, newline="") as f:
+        best, notes = choose_lrs(list(csv.DictReader(f)))
+    for n in notes:
+        print(n)
+    return best
 
 
 def main():
@@ -98,21 +138,9 @@ def main():
         w = csv.DictWriter(f, fieldnames=list(rows[0]))
         w.writeheader()
         w.writerows(rows)
-    best = {}
-    for arch in a.archs:
-        mine = [r for r in rows if r["arch"] == arch]
-        ok = [r for r in mine if r["status"] == "ok"]
-        if not ok:
-            raise SystemExit(f"every {arch} sweep run diverged: rerun with lower --lrs")
-        best[arch] = min(ok, key=lambda r: r["best_val_loss"])["lr"]
-        grid = [r["lr"] for r in mine]
-        diverged = [r["lr"] for r in mine if r["status"] == "diverged"]
-        if diverged:
-            print(f"{arch}: diverged (LR too high) at {diverged}")
-        if best[arch] in (min(grid), max(grid)):  # an edge winner means the sweep range was too narrow
-            print(f"WARNING: best LR for {arch} is at the edge of the sweep; extend --lrs")
-    if "mamba" in best:
-        best.setdefault("mamba_lti", best["mamba"])
+    best, notes = choose_lrs(rows)
+    for n in notes:
+        print(n)
     (res / "best_lr.json").write_text(json.dumps(best, indent=2))
     print("best learning rates:", best)
 

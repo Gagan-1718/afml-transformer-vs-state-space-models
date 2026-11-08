@@ -30,6 +30,9 @@ Links you will need:
    - Version 1 (8 Nov) failed: too-short warmup in the sweep; fixed in the code. Version 2 is the same
      notebook, same two inputs, Save Version again. Never add `afml-sweep`'s own output as an input.
    - Log lines saying `diverged` are normal (that learning rate is too high). Only `FAILED` is a problem.
+   - Version 2 succeeded (8 Nov, 2.9 h). Its `best_lr.json` says Mamba 0.0024, but the main runs
+     recompute the rates from `lr_sweep.csv` with the tie rule: Transformer 0.0006, Mamba and LTI 0.0012.
+     Every main-run log must show `learning rates (from the sweep): {'transformer': 0.0006, 'mamba': 0.0012, 'mamba_lti': 0.0012}`.
    - When it succeeds, the log ends with the best learning rates, and the Output has
      `afml/results/S/best_lr.json`. Check the last 40 lines of the log.
    - Make `afml-sweep` public.

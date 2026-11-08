@@ -189,9 +189,13 @@ TODO(results): cite the measured tokens per second from `results/smoke/smoke_rep
 
 **Learning rate.** The Transformer and Mamba are each trained for 30M tokens (228 steps), with the same
 step size and the same 51 warmup steps as the main runs, at learning rates 3e-4, 6e-4, 1.2e-3 and 2.4e-3,
-plus 1.5e-4 for the Transformer. The rate with the lowest validation loss is used for the full runs.
-A rate whose training loss becomes NaN or infinite is recorded as diverged and not chosen. Mamba-LTI
-uses the Mamba rate.
+plus 1.5e-4 for the Transformer. The rate with the lowest validation loss is used for the full runs,
+with one tie rule: rates within 0.01 of the lowest validation loss count as tied, and the lowest tied
+rate is used, because the full runs are about 11 times longer than the sweep runs, the best rate tends
+to fall as training gets longer, and a lower rate is less likely to diverge in fp16. We added this rule
+after seeing the sweep, where two Mamba rates came out almost equal (`results/S/lr_sweep.csv`); we state
+it here so the choice is transparent. A rate whose training loss becomes NaN or infinite is recorded as
+diverged and not chosen. Mamba-LTI uses the Mamba rate.
 
 A first sweep set warmup to 2% of each sweep run's own length, which is only 4 steps. In that sweep
 the two highest Mamba rates diverged and the Transformer's best rate was the lowest one tried, so the

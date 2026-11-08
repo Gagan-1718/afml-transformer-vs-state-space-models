@@ -99,6 +99,23 @@ def test_sweep_records_diverged_runs_and_picks_best_of_the_rest(tmp_path, monkey
     assert "WARNING" not in out and "mamba: diverged (LR too high) at [0.0012]" in out
 
 
+def test_tied_learning_rates_pick_the_lowest(tmp_path, capsys):
+    """The real sweep v2 numbers (Kaggle, 2026-11-08): Mamba 1.2e-3 and 2.4e-3 differ by 0.0008."""
+    sweep = _script("sweep_lr")
+    losses = {"transformer": {1.5e-4: 6.021586, 3e-4: 5.643808, 6e-4: 5.413483, 1.2e-3: 5.619077, 2.4e-3: 5.744278},
+              "mamba": {3e-4: 5.602395, 6e-4: 5.201107, 1.2e-3: 4.924240, 2.4e-3: 4.923466}}
+    f = tmp_path / "lr_sweep.csv"
+    lines = ["scale,arch,lr,warmup_steps,status,diverged_at_step,tokens,best_val_loss,train_seconds"]
+    lines += [f"S,{arch},{lr},51,ok,,29884416,{loss},1.0" for arch, d in losses.items() for lr, loss in d.items()]
+    f.write_text("\n".join(lines) + "\n")
+    assert sweep.best_from_csv(f) == {"transformer": 6e-4, "mamba": 1.2e-3, "mamba_lti": 1.2e-3}
+    out = capsys.readouterr().out
+    assert "WARNING" not in out and "using the lowest, 0.0012" in out
+    best, _ = sweep.choose_lrs([{"arch": "mamba", "lr": lr, "status": "ok", "best_val_loss": v}
+                                for lr, v in ((1e-3, 5.0), (2e-3, 4.95))])
+    assert best["mamba"] == 2e-3  # a real (> 0.01) improvement still wins
+
+
 def test_smoke_report(data_dir, tmp_path):
     rep = _script("smoke_report")
     runs = []

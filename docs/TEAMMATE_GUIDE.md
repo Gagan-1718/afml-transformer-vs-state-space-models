@@ -115,6 +115,7 @@ click the running version → **Logs** tab. You should see these lines (numbers 
 code version: <7 letters> ...
 GPUs: ['Tesla T4, 15360 MiB', 'Tesla T4, 15360 MiB']
 torch 2.10.0+cu126 | mamba-ssm fused kernel available: True
+learning rates (from the sweep): {'transformer': 0.0006, 'mamba': 0.0012, 'mamba_lti': 0.0012}
 left to other accounts (ONLY_RUNS): [ ...the 7 runs that are not yours... ]
 [HH:MM] start <your first run> on GPU 0 (...)
 [HH:MM] start <your second run> on GPU 1 (...)
@@ -123,6 +124,7 @@ left to other accounts (ONLY_RUNS): [ ...the 7 runs that are not yours... ]
 | What you see | What to do |
 | --- | --- |
 | All lines as above, with **your** two run names | Nothing. Close everything and come back in about 10 hours |
+| The `learning rates` line shows different numbers (for example `'mamba': 0.0024`) | **Stop the version** and send Gagandeep the log |
 | `mamba-ssm fused kernel available: False` | **Stop the version** (Cancel/Stop on the version page) and send Gagandeep the log. Without the kernel, Mamba is far too slow |
 | `GPUs: none` or only one GPU | Accelerator was not `GPU T4 x2`. Stop the version, fix step 4, start again |
 | The version shows **Failed** | Open **Logs**, copy everything, send it to Gagandeep |
