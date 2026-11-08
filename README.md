@@ -44,6 +44,7 @@ scripts/                 make_configs, sweep_lr, smoke_report, collect_results, 
 notebooks/run_study.ipynb   runs everything on a free Kaggle or Colab GPU
 tests/                   correctness tests (run these first)
 report/report.md         course report draft; result slots marked TODO(results) are filled from results/
+docs/                    TEAMMATE_GUIDE.md (one Kaggle run per teammate), COORDINATOR_CHECKLIST.md
 results/pilot/           the earlier 0.56M-parameter Review 1 pilot, kept for history
 ```
 
@@ -88,6 +89,8 @@ finished runs and paused runs are reused.
 - **The `data` stage needs no GPU:** run it in a CPU session to save GPU quota.
 - **Small outputs:** finished runs keep only `best.pt`; finished sweep and smoke runs keep no weights.
 - **Splitting work across team accounts:** set `ONLY_RUNS`, then add each other's outputs as inputs.
+  Step-by-step: [docs/TEAMMATE_GUIDE.md](docs/TEAMMATE_GUIDE.md) and
+  [docs/COORDINATOR_CHECKLIST.md](docs/COORDINATOR_CHECKLIST.md).
 - **The `smoke` stage measures real speed first:** `scripts/smoke_report.py` turns 20-step runs into
   tokens/sec, micro-batch and peak memory, plus planning estimates of hours per run and per stage.
 

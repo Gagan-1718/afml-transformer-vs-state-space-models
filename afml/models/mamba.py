@@ -24,11 +24,39 @@ from torch.utils.checkpoint import checkpoint
 from ..config import ModelConfig
 from .common import RMSNorm
 
-try:  # optional: pip install mamba-ssm (needs a CUDA build matching your torch)
-    from mamba_ssm.ops.selective_scan_interface import selective_scan_fn as _cuda_scan_fn
-except Exception:  # noqa: BLE001 - any import failure means "not available"
-    _cuda_scan_fn = None
+def _load_cuda_scan():
+    """The fused selective-scan kernel from the optional `mamba-ssm` package, or None.
 
+    Only `mamba_ssm.ops.selective_scan_interface` is imported. The package's own __init__.py is skipped
+    on purpose: it imports the whole library (models, generation utilities, transformers), which can
+    break on a new environment even when the kernel itself works. Returns (fn, error message)."""
+    import importlib
+    import importlib.util
+    import sys
+    import types
+    try:
+        spec = importlib.util.find_spec("mamba_ssm")
+    except (ImportError, ValueError) as e:
+        return None, f"{type(e).__name__}: {e}"
+    if spec is None or not spec.submodule_search_locations:
+        return None, "mamba-ssm is not installed"
+    added = "mamba_ssm" not in sys.modules
+    if added:  # an empty package object, so importing a submodule does not run mamba_ssm/__init__.py
+        pkg = types.ModuleType("mamba_ssm")
+        pkg.__path__ = list(spec.submodule_search_locations)
+        pkg.__spec__ = spec
+        sys.modules["mamba_ssm"] = pkg
+    try:
+        mod = importlib.import_module("mamba_ssm.ops.selective_scan_interface")
+        return mod.selective_scan_fn, None
+    except Exception as e:  # noqa: BLE001 - any import failure means "not available"
+        if added:
+            for name in [m for m in sys.modules if m == "mamba_ssm" or m.startswith("mamba_ssm.")]:
+                del sys.modules[name]
+        return None, f"{type(e).__name__}: {e}"
+
+
+_cuda_scan_fn, CUDA_SCAN_ERROR = _load_cuda_scan()
 HAS_CUDA_SCAN = _cuda_scan_fn is not None
 
 

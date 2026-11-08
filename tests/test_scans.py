@@ -79,3 +79,38 @@ def test_cuda_kernel_matches_reference():
     torch.testing.assert_close(h1, h0, atol=1e-3, rtol=1e-3)
     for a, b in zip(g1, g0):
         torch.testing.assert_close(a, b, atol=1e-2, rtol=1e-2)
+
+
+def _fake_mamba_pkg(root, interface_body):
+    pkg = root / "mamba_ssm"
+    for sub in ("", "ops", "utils"):
+        (pkg / sub).mkdir(parents=True, exist_ok=True)
+    (pkg / "__init__.py").write_text("raise ImportError('the full package import is broken')\n")
+    (pkg / "ops" / "__init__.py").write_text("")
+    (pkg / "utils" / "__init__.py").write_text("")
+    (pkg / "utils" / "torch.py").write_text("HELPER = 'helper'\n")
+    (pkg / "ops" / "selective_scan_interface.py").write_text(interface_body)
+
+
+@pytest.mark.parametrize("works", [True, False])
+def test_cuda_scan_loader_skips_package_init(tmp_path, monkeypatch, works):
+    import importlib
+    import sys
+
+    from afml.models.mamba import _load_cuda_scan
+    body = ("from mamba_ssm.utils.torch import HELPER\n"
+            "def selective_scan_fn(*args, **kwargs):\n    return HELPER\n") if works else \
+        "import selective_scan_cuda_that_does_not_exist\n"
+    _fake_mamba_pkg(tmp_path, body)
+    monkeypatch.syspath_prepend(str(tmp_path))
+    for name in [m for m in sys.modules if m.split(".")[0] == "mamba_ssm"]:
+        monkeypatch.delitem(sys.modules, name)
+    importlib.invalidate_caches()
+    fn, err = _load_cuda_scan()
+    if works:
+        assert err is None and fn() == "helper"  # loaded although mamba_ssm/__init__.py raises
+    else:
+        assert fn is None and "selective_scan_cuda_that_does_not_exist" in err
+        assert not [m for m in sys.modules if m.split(".")[0] == "mamba_ssm"]  # cleaned up
+    for name in [m for m in sys.modules if m.split(".")[0] == "mamba_ssm"]:
+        del sys.modules[name]
