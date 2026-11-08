@@ -1,7 +1,7 @@
 .venv/
 __pycache__/
 .pytest_cache/
-data/
+/data/
 runs/
 *.pt
 *.bin
