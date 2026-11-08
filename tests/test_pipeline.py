@@ -43,6 +43,10 @@ def test_lr_schedule():
     assert lr_at(9, 100, cfg) == pytest.approx(1e-3)
     assert lr_at(99, 100, cfg) == pytest.approx(1e-4, rel=0.05)
     assert all(lr_at(s, 100, cfg) >= lr_at(s + 1, 100, cfg) for s in range(10, 99))
+    fixed = {**cfg, "warmup_steps": 51}  # the sweep's short runs warm up as long as the full run
+    assert lr_at(50, 228, fixed) == pytest.approx(1e-3) and lr_at(49, 228, fixed) < 1e-3
+    assert lr_at(0, 228, fixed) == pytest.approx(1e-3 / 51)
+    assert lr_at(0, 228, {**cfg, "warmup_steps": None}) == lr_at(0, 228, cfg)
 
 
 @pytest.mark.parametrize("arch,extra", [("transformer", {"n_heads": 2}), ("mamba", {"scan": "chunked"})])

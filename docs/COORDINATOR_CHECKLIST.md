@@ -23,10 +23,13 @@ Links you will need:
    - When it succeeds, download `afml/results/smoke/smoke_report.md` from the Output tab and copy the
      last 40 lines of the log.
 5. **Wait** until the training-token budget is set from the smoke numbers and pushed.
-6. **Learning-rate sweep** (about 3.5 hours).
+6. **Learning-rate sweep** (about 2.5 to 3 hours).
    - Notebook name `afml-sweep`. Inputs: `afml-data` **and** `afml-smoke` (so the measured speeds end up
      in the final results for the report).
    - First cell: `STAGES = {'sweep'}`. Leave `ONLY_RUNS = None`.
+   - Version 1 (8 Nov) failed: too-short warmup in the sweep; fixed in the code. Version 2 is the same
+     notebook, same two inputs, Save Version again. Never add `afml-sweep`'s own output as an input.
+   - Log lines saying `diverged` are normal (that learning rate is too high). Only `FAILED` is a problem.
    - When it succeeds, the log ends with the best learning rates, and the Output has
      `afml/results/S/best_lr.json`. Check the last 40 lines of the log.
    - Make `afml-sweep` public.
@@ -58,7 +61,7 @@ Links you will need:
 
 | Account | Uses about |
 | --- | --- |
-| Gagandeep | smoke 0.4 h + sweep 3.5 h + main run 9.5 h + final 4 to 6 h = about 18 to 20 h |
+| Gagandeep | smoke 0.4 h + sweep v1 2 h + sweep v2 3 h + main run 9.5 h + final 4 to 6 h = about 19 to 21 h |
 | Each teammate | about 9.5 h |
 
 ---

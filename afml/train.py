@@ -23,10 +23,13 @@ from .models import build_model, count_params, param_groups, train_flops_per_tok
 from .models.mamba import HAS_CUDA_SCAN
 
 PAUSED_EXIT_CODE = 75  # "try again later": the run stopped at --stop-at and resumes on the next call
+DIVERGED_EXIT_CODE = 3  # the loss became NaN/inf; diverged.json says when (in a sweep: this LR is too high)
 
+# warmup_steps, when set, overrides warmup_frac. The LR sweep sets it so its short runs warm up for as many
+# steps as the full run (2% of a 228-step sweep run is only 4 steps, which unfairly punishes high LRs).
 DEFAULT_TRAIN = {
     "seed": 0, "seq_len": 1024, "micro_batch": 16, "grad_accum": 16, "total_tokens": 340_000_000,
-    "lr": 6e-4, "min_lr_ratio": 0.1, "warmup_frac": 0.02, "weight_decay": 0.1,
+    "lr": 6e-4, "min_lr_ratio": 0.1, "warmup_frac": 0.02, "warmup_steps": None, "weight_decay": 0.1,
     "betas": [0.9, 0.95], "grad_clip": 1.0, "precision": "auto", "compile": False,
     "eval_every": 200, "eval_tokens": 2_000_000, "save_every_minutes": 20, "log_every": 20,
     "wandb_project": None,
@@ -47,8 +50,23 @@ def load_config(path, overrides=()):
     return cfg
 
 
+class Diverged(RuntimeError):
+    """The training loss became NaN or inf."""
+
+
+def planned_steps(tc):
+    """Optimizer steps of a full run (tokens per step stay fixed, even when micro_batch is halved)."""
+    return max(1, tc["total_tokens"] // (tc["micro_batch"] * tc["grad_accum"] * tc["seq_len"]))
+
+
+def warmup_steps(total, cfg):
+    if cfg.get("warmup_steps"):
+        return max(1, min(int(cfg["warmup_steps"]), total))
+    return max(1, int(cfg["warmup_frac"] * total))
+
+
 def lr_at(step, total, cfg):
-    warm = max(1, int(cfg["warmup_frac"] * total))
+    warm = warmup_steps(total, cfg)
     if step < warm:
         return cfg["lr"] * (step + 1) / warm
     progress = min(1.0, (step - warm) / max(1, total - warm))
@@ -127,8 +145,9 @@ def train(cfg, data_dir, out_dir, device="auto", max_steps=None, stop_at=None):
     torch.manual_seed(tc["seed"])
     model = build_model(mcfg).to(device)
     n_total, n_nonemb = count_params(model), count_params(model, exclude_embedding=True)
+    (out / "diverged.json").unlink(missing_ok=True)  # a new attempt
     tokens_per_step = tc["micro_batch"] * tc["grad_accum"] * tc["seq_len"]
-    total_steps = max(1, tc["total_tokens"] // tokens_per_step)
+    total_steps = planned_steps(tc)
     if max_steps:
         total_steps = min(total_steps, max_steps)
     dtype = pick_precision(tc["precision"], device)
@@ -209,7 +228,9 @@ def train(cfg, data_dir, out_dir, device="auto", max_steps=None, stop_at=None):
             with torch.autocast(device_type=device, dtype=dtype, enabled=dtype != torch.float32):
                 _, loss = fwd(x, y)
             if not torch.isfinite(loss):
-                raise RuntimeError(f"non-finite loss at step {step}")
+                (out / "diverged.json").write_text(json.dumps(
+                    {"step": step, "lr": lr, "loss": str(loss.item()), "total_steps": total_steps}))
+                raise Diverged(f"non-finite loss at step {step} (lr {lr:.3g})")
             scaler.scale(loss / tc["grad_accum"]).backward()
             run_loss += loss.item()
             run_n += 1
@@ -277,7 +298,11 @@ def main():
     ap.add_argument("--stop-at", type=float, default=None,
                     help="unix time: save last.pt and exit with code 75 once reached (resume by rerunning)")
     a = ap.parse_args()
-    s = train(load_config(a.config, a.set), a.data, a.out, a.device, a.max_steps, a.stop_at)
+    try:
+        s = train(load_config(a.config, a.set), a.data, a.out, a.device, a.max_steps, a.stop_at)
+    except Diverged as e:
+        print(f"diverged: {e}. Details in diverged.json.", flush=True)
+        sys.exit(DIVERGED_EXIT_CODE)
     if s.get("paused"):
         sys.exit(PAUSED_EXIT_CODE)
     print(json.dumps({k: s[k] for k in ("arch", "params_total", "best_val_loss", "best_val_ppl", "train_seconds")}))

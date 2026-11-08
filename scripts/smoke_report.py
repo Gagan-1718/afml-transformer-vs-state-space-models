@@ -25,7 +25,7 @@ from afml.models import build_model, count_params, train_flops_per_token  # noqa
 from afml.train import DEFAULT_TRAIN  # noqa: E402
 
 TARGETS = ["S_transformer", "S_mamba", "S_mamba_lti", "M_transformer", "M_mamba", "M_mamba_lti"]
-SWEEP_LRS = 4               # scripts/sweep_lr.py defaults
+SWEEP_LRS = {"transformer": 5, "mamba": 4}  # number of LRs in scripts/sweep_lr.py DEFAULT_LRS
 SWEEP_TOKENS = 30_000_000
 
 
@@ -112,8 +112,8 @@ def stage_plan(est, gpus, session_hours):
             return None
 
         stages = {
-            f"sweep (S, 2 models x {SWEEP_LRS} LRs)": [pick(f"S_{a}", "sweep_run_hours")
-                                                      for a in ("transformer", "mamba") for _ in range(SWEEP_LRS)],
+            "sweep (S, Transformer x {transformer} + Mamba x {mamba} LRs)".format(**SWEEP_LRS):
+                [pick(f"S_{a}", "sweep_run_hours") for a, n in SWEEP_LRS.items() for _ in range(n)],
             "S (3 models x 3 seeds)": [pick(f"S_{a}", "hours") for a in ("transformer", "mamba", "mamba_lti")
                                        for _ in range(3)],
             "M (transformer + mamba, 1 seed)": [pick(f"M_{a}", "hours") for a in ("transformer", "mamba")],

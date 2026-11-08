@@ -1,0 +1,106 @@
+# Kaggle notebook afml-sweep, Version 1 (2026-11-08), code 11961b4. Log as copied from the Kaggle Logs tab
+# (lines 1-5 were not copied; lines 108-131, papermill's copy of the same traceback, are left out). This sweep used warmup = 2% of each 228-step sweep run (4 steps); it was
+# discarded and rerun with the main run's 51 warmup steps. Kept as evidence for report section 5.
+8.6s	6	0.00s - make the debugger miss breakpoints. Please pass -Xfrozen_modules=off
+8.6s	7	0.00s - to python to disable frozen modules.
+8.6s	8	0.00s - Note: Debugging will proceed. Set PYDEVD_DISABLE_FILE_VALIDATION=1 to disable this validation.
+9.8s	9	$ git clone --depth 1 --branch upgrade/full-study https://github.com/Gagan-1718/afml-transformer-vs-state-space-models.git /tmp/afml-repo
+10.0s	10	Cloning into '/tmp/afml-repo'...
+10.8s	11	$ git log -1 --format="code version: %h %s"
+10.8s	12	code version: 11961b4 Size the study to the measured T4 speed: 340M tokens per run, 131K-token steps
+10.8s	13	$ pip install -q -r requirements.txt
+14.0s	14	GPUs: ['Tesla T4, 15360 MiB', 'Tesla T4, 15360 MiB']
+16.4s	15	data: /kaggle/input/notebooks/gagandeep26032006/afml-data/afml/data_fineweb_16k | runs restored: 3
+27.5s	16	torch 2.11.0+cu130 (CUDA 13.0) has no prebuilt mamba-ssm wheel: installing torch 2.10.0+cu126 for this session
+27.5s	17	$ pip install -q "torch==2.10.0+cu126" --index-url https://download.pytorch.org/whl/cu126 --extra-index-url https://pypi.org/simple
+192.0s	18	ERROR: pip's dependency resolver does not currently take into account all the packages that are installed. This behaviour is the source of the following dependency conflicts.
+192.0s	19	torchvision 0.26.0+cu130 requires torch==2.11.0, but you have torch 2.10.0+cu126 which is incompatible.
+192.0s	20	cuda-python 13.0.3 requires cuda-bindings~=13.0.3, but you have cuda-bindings 12.9.4 which is incompatible.
+192.3s	21	$ pip install -q einops
+194.2s	22	$ pip install -q --no-deps "https://github.com/state-spaces/mamba/releases/download/v2.3.2.post1/mamba_ssm-2.3.2.post1+cu12torch2.10cxx11abiTRUE-cp313-cp313-linux_x86_64.whl"
+224.1s	23	torch 2.10.0+cu126 | mamba-ssm fused kernel available: True
+224.1s	24	$ python -m pytest -q
+277.0s	25	.......................................                                  [100%]
+277.0s	26	39 passed in 50.23s
+278.0s	27	/kaggle/input/notebooks/gagandeep26032006/afml-data/afml/data_fineweb_16k {
+278.0s	28	  "train": {
+278.0s	29	    "tokens": 2000000330,
+278.0s	30	    "documents": 1809687
+278.0s	31	  },
+278.0s	32	  "val": {
+278.0s	33	    "tokens": 10000935,
+278.0s	34	    "documents": 8945
+278.0s	35	  },
+278.0s	36	  "test": {
+278.0s	37	    "tokens": 10000062,
+278.0s	38	    "documents": 9159
+278.0s	39	  }
+278.0s	40	}
+278.0s	41	[05:06] start S_transformer_lr0.0003 on GPU 0 (10.9 h left)
+278.0s	42	[05:06] start S_transformer_lr0.0006 on GPU 1 (10.9 h left)
+1178.0s	43	[05:21] S_transformer_lr0.0003 (GPU 0): step=80 tokens=10485760 flops=3.349e+15 lr=0.000232 train_loss=6.572 grad_norm=0.3452 tokens_per_sec=1.353e+04 elapsed_s=774.9
+1178.0s	44	[05:21] S_transformer_lr0.0006 (GPU 1): step=80 tokens=10485760 flops=3.349e+15 lr=0.0004639 train_loss=6.691 grad_norm=0.5998 tokens_per_sec=1.352e+04 elapsed_s=775.7
+2078.0s	45	[05:36] S_transformer_lr0.0003 (GPU 0): step=200 tokens=26214400 flops=8.372e+15 lr=4.101e-05 train_loss=5.931 grad_norm=0.4432 tokens_per_sec=1.541e+04 elapsed_s=1701
+2078.0s	46	[05:36] S_transformer_lr0.0006 (GPU 1): step=200 tokens=26214400 flops=8.372e+15 lr=8.203e-05 train_loss=5.975 grad_norm=0.3245 tokens_per_sec=1.54e+04 elapsed_s=1702
+2238.0s	47	[05:39] finished S_transformer_lr0.0003: {"arch": "transformer", "params_total": 46936576, "best_val_loss": 5.880451161374328, "best_val_ppl": 357.97070783899096, "train_seconds": 1898.0187735557556}
+2238.1s	48	[05:39] finished S_transformer_lr0.0006: {"arch": "transformer", "params_total": 46936576, "best_val_loss": 5.912965201745568, "best_val_ppl": 369.8010660582191, "train_seconds": 1898.8172285556793}
+2238.1s	49	[05:39] start S_transformer_lr0.0012 on GPU 0 (10.4 h left)
+2238.1s	50	[05:39] start S_transformer_lr0.0024 on GPU 1 (10.4 h left)
+2978.1s	51	[05:51] S_transformer_lr0.0012 (GPU 0): step=140 tokens=18350080 flops=5.86e+15 lr=0.0004888 train_loss=6.284 grad_norm=0.22 tokens_per_sec=2.619e+04 elapsed_s=700.6
+2978.1s	52	[05:51] S_transformer_lr0.0024 (GPU 1): step=140 tokens=18350080 flops=5.86e+15 lr=0.0009776 train_loss=6.36 grad_norm=0.3377 tokens_per_sec=2.822e+04 elapsed_s=650.2
+3358.1s	53	[05:58] finished S_transformer_lr0.0024: {"arch": "transformer", "params_total": 46936576, "best_val_loss": 6.073334226593627, "best_val_ppl": 434.12574475483495, "train_seconds": 1061.3004224300385}
+3358.2s	54	[05:58] start S_mamba_lr0.0003 on GPU 1 (10.1 h left)
+3458.2s	55	[05:59] finished S_transformer_lr0.0012: {"arch": "transformer", "params_total": 46936576, "best_val_loss": 6.012611217029999, "best_val_ppl": 408.5487380724158, "train_seconds": 1143.8383495807648}
+3458.2s	56	[05:59] start S_mamba_lr0.0006 on GPU 0 (10.0 h left)
+3878.2s	57	[06:06] S_mamba_lr0.0003 (GPU 1): step=40 tokens=5242880 flops=1.526e+15 lr=0.0002841 train_loss=6.983 grad_norm=0.4735 tokens_per_sec=1.203e+04 elapsed_s=435.8
+3878.2s	58	[06:06] S_mamba_lr0.0006 (GPU 0): step=20 tokens=2621440 flops=7.632e+14 lr=0.000594 train_loss=7.931 grad_norm=0.447 tokens_per_sec=1.133e+04 elapsed_s=231.3
+4778.2s	59	[06:21] S_mamba_lr0.0003 (GPU 1): step=120 tokens=15728640 flops=4.579e+15 lr=0.0001593 train_loss=5.937 grad_norm=0.3999 tokens_per_sec=1.2e+04 elapsed_s=1310
+4778.2s	60	[06:21] S_mamba_lr0.0006 (GPU 0): step=100 tokens=13107200 flops=3.816e+15 lr=0.0003938 train_loss=5.931 grad_norm=0.3866 tokens_per_sec=1.131e+04 elapsed_s=1159
+5678.3s	61	[06:36] S_mamba_lr0.0003 (GPU 1): step=200 tokens=26214400 flops=7.632e+15 lr=4.101e-05 train_loss=5.654 grad_norm=0.3747 tokens_per_sec=1.2e+04 elapsed_s=2184
+5678.3s	62	[06:36] S_mamba_lr0.0006 (GPU 0): step=180 tokens=23592960 flops=6.869e+15 lr=0.0001213 train_loss=5.518 grad_norm=0.3108 tokens_per_sec=1.129e+04 elapsed_s=2090
+5978.3s	63	[06:41] finished S_mamba_lr0.0003: {"arch": "mamba", "params_total": 46850368, "best_val_loss": 5.614979577931269, "best_val_ppl": 274.5077731215273, "train_seconds": 2491.430930376053}
+5978.3s	64	[06:41] start S_mamba_lr0.0012 on GPU 1 (9.3 h left)
+6238.3s	65	[06:46] finished S_mamba_lr0.0006: {"arch": "mamba", "params_total": 46850368, "best_val_loss": 5.420439287508932, "best_val_ppl": 225.97837017661286, "train_seconds": 2650.325066804886}
+6238.4s	66	[06:46] start S_mamba_lr0.0024 on GPU 0 (9.3 h left)
+6538.4s	67	[06:51] FAILED S_mamba_lr0.0024 (exit 1). Last lines of /kaggle/working/afml/runs/sweep/S_mamba_lr0.0024/train.log:
+6538.4s	68
+6538.4s	69	[Sun Nov  8 06:46:11 2026] $ /usr/bin/python3 -m afml.train --config /tmp/afml-repo/configs/S_mamba.json --data /kaggle/input/notebooks/gagandeep26032006/afml-data/afml/data_fineweb_16k --out /kaggle/working/afml/runs/sweep/S_mamba_lr0.0024 --set train.lr=0.0024 --set train.total_tokens=30000000 --stop-at 1794153743
+6538.4s	70	out of memory: micro_batch -> 8, grad_accum -> 16
+6538.4s	71	mamba: 46,850,368 params (38,461,760 non-embedding); 228 steps x 131,072 tokens; torch.float16; device cuda
+6538.4s	72	Traceback (most recent call last):
+6538.4s	73	  File "<frozen runpy>", line 203, in _run_module_as_main
+6538.4s	74	  File "<frozen runpy>", line 88, in _run_code
+6538.4s	75	  File "/tmp/afml-repo/afml/train.py", line 287, in <module>
+6538.4s	76	    main()
+6538.4s	77	    ~~~~^^
+6538.4s	78	  File "/tmp/afml-repo/afml/train.py", line 280, in main
+6538.4s	79	    s = train(load_config(a.config, a.set), a.data, a.out, a.device, a.max_steps, a.stop_at)
+6538.4s	80	  File "/tmp/afml-repo/afml/train.py", line 212, in train
+6538.4s	81	    raise RuntimeError(f"non-finite loss at step {step}")
+6538.4s	82	RuntimeError: non-finite loss at step 19
+6578.4s	83	[06:51] S_mamba_lr0.0012 (GPU 1): step=40 tokens=5242880 flops=1.526e+15 lr=0.001136 train_loss=7.583 grad_norm=1.821 tokens_per_sec=1.212e+04 elapsed_s=432.4
+7158.4s	84	[07:01] FAILED S_mamba_lr0.0012 (exit 1). Last lines of /kaggle/working/afml/runs/sweep/S_mamba_lr0.0012/train.log:
+7158.4s	85
+7158.4s	86	[Sun Nov  8 06:41:51 2026] $ /usr/bin/python3 -m afml.train --config /tmp/afml-repo/configs/S_mamba.json --data /kaggle/input/notebooks/gagandeep26032006/afml-data/afml/data_fineweb_16k --out /kaggle/working/afml/runs/sweep/S_mamba_lr0.0012 --set train.lr=0.0012 --set train.total_tokens=30000000 --stop-at 1794153743
+7158.4s	87	out of memory: micro_batch -> 8, grad_accum -> 16
+7158.4s	88	mamba: 46,850,368 params (38,461,760 non-embedding); 228 steps x 131,072 tokens; torch.float16; device cuda
+7158.4s	89	step=20 tokens=2621440 flops=7.632e+14 lr=0.001188 train_loss=8.3 grad_norm=15.34 tokens_per_sec=1.211e+04 elapsed_s=216.5
+7158.4s	90	step=40 tokens=5242880 flops=1.526e+15 lr=0.001136 train_loss=7.583 grad_norm=1.821 tokens_per_sec=1.212e+04 elapsed_s=432.4
+7158.4s	91	step=60 tokens=7864320 flops=2.29e+15 lr=0.001047 train_loss=7.539 grad_norm=2.021 tokens_per_sec=1.215e+04 elapsed_s=647.2
+7158.4s	92	step=80 tokens=10485760 flops=3.053e+15 lr=0.0009278 train_loss=7.528 grad_norm=0.2074 tokens_per_sec=1.217e+04 elapsed_s=861.6
+7158.4s	93	step=100 tokens=13107200 flops=3.816e+15 lr=0.0007875 train_loss=7.498 grad_norm=3.702 tokens_per_sec=1.218e+04 elapsed_s=1077
+7158.4s	94	Traceback (most recent call last):
+7158.4s	95	  File "<frozen runpy>", line 203, in _run_module_as_main
+7158.4s	96	  File "<frozen runpy>", line 88, in _run_code
+7158.4s	97	  File "/tmp/afml-repo/afml/train.py", line 287, in <module>
+7158.4s	98	    main()
+7158.4s	99	    ~~~~^^
+7158.4s	100	  File "/tmp/afml-repo/afml/train.py", line 280, in main
+7158.4s	101	    s = train(load_config(a.config, a.set), a.data, a.out, a.device, a.max_steps, a.stop_at)
+7158.4s	102	  File "/tmp/afml-repo/afml/train.py", line 212, in train
+7158.4s	103	    raise RuntimeError(f"non-finite loss at step {step}")
+7158.4s	104	RuntimeError: non-finite loss at step 102
+7158.7s	105	Traceback (most recent call last):
+7158.7s	106	  File "<string>", line 1, in <module>
+7158.7s	107	    import sys;import papermill as pm;pm.execute_notebook("__notebook__.ipynb","__notebook__.ipynb",progress_bar=False,log_output=True,stdout_file=sys.stdout,stderr_file=sys.stderr,allow_errors=False,timeout=43200)
+7158.7s	132	RuntimeError: failed jobs: ['S_mamba_lr0.0024', 'S_mamba_lr0.0012']. Their logs are printed above; fix the cause, then rerun.

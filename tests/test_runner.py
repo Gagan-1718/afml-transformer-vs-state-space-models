@@ -52,9 +52,51 @@ def test_pause_at_time_limit_then_resume(data_dir, tmp_path):
 def test_sweep_job_names_match_collection():
     sweep = _script("sweep_lr")
     jobs = sweep.sweep_jobs("S", ["transformer", "mamba"], [3e-4, 1.2e-3], 1000, "DATA", "RUNS", stop_at=5.0)
-    assert [j[2].name for j in jobs] == ["S_transformer_lr0.0003", "S_transformer_lr0.0012",
-                                         "S_mamba_lr0.0003", "S_mamba_lr0.0012"]
+    assert [j[2].name for j in jobs] == ["S_transformer_lr0.0003_w51", "S_transformer_lr0.0012_w51",
+                                         "S_mamba_lr0.0003_w51", "S_mamba_lr0.0012_w51"]
     assert all(j[2].parent.name == "sweep" and "--stop-at" in j[3] for j in jobs)
+    # sweep runs warm up for the main run's 51 steps (2% of 2,593), not 2% of their own length
+    assert all("train.warmup_steps=51" in j[3] for j in jobs)
+    per_arch = sweep.sweep_jobs("S", ["transformer", "mamba"], sweep.DEFAULT_LRS, 1000, "DATA", "RUNS")
+    assert [j[1] for j in per_arch if j[0] == "transformer"] == sweep.DEFAULT_LRS["transformer"]
+    assert [j[1] for j in per_arch if j[0] == "mamba"] == sweep.DEFAULT_LRS["mamba"]
+
+
+def test_diverged_run_writes_marker_and_exit_code(data_dir, tmp_path, monkeypatch):
+    from afml import train as train_mod
+    out = tmp_path / "run"
+    cfg = _cfg(tmp_path, "transformer", {"n_heads": 2})
+    monkeypatch.setattr("sys.argv", ["train", "--config", str(cfg), "--data", str(data_dir), "--out", str(out),
+                                     "--device", "cpu", "--set", "train.lr=1e30"])  # inf weights after step 0
+    with pytest.raises(SystemExit) as e:
+        train_mod.main()
+    assert e.value.code == train_mod.DIVERGED_EXIT_CODE
+    d = json.loads((out / "diverged.json").read_text())
+    assert 1 <= d["step"] < 12 and not (out / "summary.json").exists()
+
+
+def test_sweep_records_diverged_runs_and_picks_best_of_the_rest(tmp_path, monkeypatch, capsys):
+    sweep = _script("sweep_lr")
+    runs, res = tmp_path / "runs", tmp_path / "results"
+    lrs = [3e-4, 6e-4, 1.2e-3]
+    losses = {"transformer": [5.9, 5.8, 5.85], "mamba": [5.6, 5.4, None]}  # None: diverged
+    for arch, lr, out, _ in sweep.sweep_jobs("S", ["transformer", "mamba"], lrs, 1000, "D", runs):
+        out.mkdir(parents=True)
+        loss = losses[arch][lrs.index(lr)]
+        if loss is None:
+            (out / "diverged.json").write_text(json.dumps({"step": 19}))
+        else:
+            (out / "summary.json").write_text(json.dumps({"tokens": 1000, "best_val_loss": loss,
+                                                          "train_seconds": 1.0}))
+    monkeypatch.setattr("sys.argv", ["sweep_lr.py", "--data", "D", "--runs", str(runs), "--results", str(res),
+                                     "--lrs", *map(str, lrs)])
+    sweep.main()
+    assert json.loads((res / "S" / "best_lr.json").read_text()) == {"transformer": 6e-4, "mamba": 6e-4,
+                                                                     "mamba_lti": 6e-4}
+    rows = (res / "S" / "lr_sweep.csv").read_text().splitlines()
+    assert rows[0].startswith("scale,arch,lr,warmup_steps,status") and sum(",diverged," in r for r in rows) == 1
+    out = capsys.readouterr().out
+    assert "WARNING" not in out and "mamba: diverged (LR too high) at [0.0012]" in out
 
 
 def test_smoke_report(data_dir, tmp_path):
@@ -74,7 +116,7 @@ def test_smoke_report(data_dir, tmp_path):
     est = rep.estimate(measured, targets)
     assert {e["target"] for e in est} == set(targets) and all(e["hours"] > 0 for e in est)
     plan = rep.stage_plan(est, gpus=2, session_hours=11)
-    assert [p["runs"] for p in plan] == [8, 9, 2]
+    assert [p["runs"] for p in plan] == [9, 9, 2]
     assert all(p["wall_hours"] >= p["gpu_hours"] / 2 for p in plan)
 
 

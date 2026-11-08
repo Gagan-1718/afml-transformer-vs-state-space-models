@@ -77,7 +77,7 @@ cell, then run. Every stage is resumable.
 
 1. `data` — build the token files once: 2B training tokens (1.1 h, CPU session).
 2. `smoke` — 20-step GPU check: speed, memory and time estimates for full runs (0.3 h).
-3. `sweep` — learning-rate sweep at scale S (about 3.5 h).
+3. `sweep` — learning-rate sweep at scale S, with the main runs' 51 warmup steps (about 2.5–3 h).
 4. `S` — the main runs, about 9.5 h each, split over team accounts with `ONLY_RUNS`.
 5. `synthetic` — MQAR and selective-copying grids.
 6. `eval` — test perplexity, PG-19, efficiency, Δ analysis.

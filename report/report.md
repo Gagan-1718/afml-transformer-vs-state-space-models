@@ -169,7 +169,7 @@ books that have at least 16,385 tokens under our tokenizer. TODO(results): book 
 | --- | --- |
 | Optimizer | AdamW, β = (0.9, 0.95), weight decay 0.1 on weight matrices only |
 | No weight decay on | norms, biases, embeddings, `A_log`, `D`, Δ bias |
-| Schedule | linear warmup over 2% of steps, cosine decay to 10% of the peak |
+| Schedule | linear warmup over 2% of steps (51 steps), cosine decay to 10% of the peak |
 | Gradient clipping | 1.0 |
 | Context length | 1,024 tokens |
 | Tokens per optimizer step | 131,072 (micro-batch × gradient accumulation × 1,024) |
@@ -187,9 +187,17 @@ run about 25 hours. The budget was therefore set so the slower model finishes wi
 session, and the step size was reduced so the shorter runs still get about 2,600 optimizer updates.
 TODO(results): cite the measured tokens per second from `results/smoke/smoke_report.md`.
 
-**Learning rate.** The Transformer and Mamba are each trained for 30M tokens, with the same step size
-as the main runs, at learning rates 3e-4, 6e-4, 1.2e-3 and 2.4e-3. The rate with the lowest validation
-loss is used for the full runs. Mamba-LTI uses the Mamba rate.
+**Learning rate.** The Transformer and Mamba are each trained for 30M tokens (228 steps), with the same
+step size and the same 51 warmup steps as the main runs, at learning rates 3e-4, 6e-4, 1.2e-3 and 2.4e-3,
+plus 1.5e-4 for the Transformer. The rate with the lowest validation loss is used for the full runs.
+A rate whose training loss becomes NaN or infinite is recorded as diverged and not chosen. Mamba-LTI
+uses the Mamba rate.
+
+A first sweep set warmup to 2% of each sweep run's own length, which is only 4 steps. In that sweep
+the two highest Mamba rates diverged and the Transformer's best rate was the lowest one tried, so the
+grid edge was reached. Because the main runs warm up for 51 steps, that sweep was biased against high
+rates; it was discarded and rerun with the main-run warmup. Its log is kept in
+`results/S/sweep_v1_failed_log.txt`.
 
 TODO(results): the sweep table and chosen rates from `results/S/lr_sweep.csv` and
 `results/S/best_lr.json`. Note whether a best rate sits at the edge of the grid.
