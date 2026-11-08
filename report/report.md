@@ -13,8 +13,8 @@ Gagandeep N (PES1UG24AM367), Mallikarjuna Rao R V (PES1UG24AM155)
 
 ## Abstract
 
-TODO(results): write last, in 5 sentences: the question; the setup (two parameter-matched pairs at
-~47M and ~98M parameters, ~20 training tokens per parameter, FineWeb-Edu); the main quality result
+TODO(results): write last, in 5 sentences: the question; the setup (parameter-matched models at
+~47M parameters, 340M training tokens each, FineWeb-Edu); the main quality result
 (`results/figures/table_main.md`); the recall and long-context results (Figures 3 to 5); the
 efficiency result with the Mamba scan backend named (Figure 6).
 
@@ -37,8 +37,8 @@ inference efficiency, and what does selectivity contribute?
 
 **What this study does.**
 
-1. Trains two parameter-matched Transformer and Mamba pairs (~47M and ~98M parameters) on identical
-   data with identical token budgets (~20 tokens per parameter, following Chinchilla).
+1. Trains parameter-matched Transformer and Mamba models (~47M parameters, 3 seeds each) on identical
+   data with an identical budget of 340M training tokens.
 2. Adds a selectivity ablation (Mamba-LTI) with the same size and training.
 3. Tests associative recall two ways: the synthetic MQAR task, and a split of natural-text test loss
    into "recall-hit" tokens and all other tokens.
@@ -118,16 +118,16 @@ binary search so that non-embedding parameters are within 0.5% of the Transforme
 | S | 512 | Transformer | 12 | - | 38,547,968 | 46,936,576 | - |
 | S | 512 | Mamba | 24 | 968 | 38,461,760 | 46,850,368 | −0.22% |
 | S | 512 | Mamba-LTI | 24 | 1,032 | 38,626,880 | 47,015,488 | +0.20% |
-| M | 768 | Transformer | 12 | - | 84,953,856 | 97,536,768 | - |
-| M | 768 | Mamba | 24 | 1,440 | 84,864,000 | 97,446,912 | −0.11% |
 
 Source: `python scripts/make_configs.py`. TODO(results): confirm against
-`results/S/runs/*/summary.json` and `results/M/runs/*/summary.json`.
+`results/S/runs/*/summary.json`.
 
 ### 3.5 Scan implementation
 
 The selective scan has four interchangeable implementations. All of them return the same outputs and
-gradients, which `tests/test_scans.py` checks against the step-by-step reference.
+the same training gradients, which `tests/test_scans.py` checks against the step-by-step reference and,
+on the GPU, for whole Mamba blocks. (The fused kernel does not backpropagate through the final state it
+returns; training never uses that state.)
 
 | Backend | What it is | Used for |
 | --- | --- | --- |
@@ -172,19 +172,24 @@ books that have at least 16,385 tokens under our tokenizer. TODO(results): book 
 | Schedule | linear warmup over 2% of steps, cosine decay to 10% of the peak |
 | Gradient clipping | 1.0 |
 | Context length | 1,024 tokens |
-| Tokens per optimizer step | 524,288 at both scales |
-| Training tokens | S: 940M (1,792 steps); M: 1.95B (3,719 steps); about 20 per parameter |
+| Tokens per optimizer step | 131,072 (micro-batch × gradient accumulation × 1,024) |
+| Training tokens | 340M (2,593 steps), about 7 per parameter, identical for every model |
 | Precision | fp16 with loss scaling on the T4 (no native bf16); the scan in fp32 |
 | Validation | 2M validation tokens every 150 steps; the best validation checkpoint is kept |
-| Seeds | S: 0, 1, 2. M: 0 |
+| Seeds | Transformer and Mamba: 0, 1, 2. Mamba-LTI: 0, 1 |
 
 If a micro-batch does not fit in GPU memory, the trainer halves it and doubles gradient
 accumulation, so the tokens per step never change.
 
-**Learning rate.** At scale S, the Transformer and Mamba are each trained for 100M tokens at learning
-rates 3e-4, 6e-4, 1.2e-3 and 2.4e-3. The rate with the lowest validation loss is used for the full
-runs. Mamba-LTI uses the Mamba rate. Scale M uses 0.6 times the scale-S rate, because larger models
-usually need lower rates; this rate is not tuned at M.
+**Why 340M tokens.** The plan was about 20 tokens per parameter (940M tokens, following Chinchilla).
+A GPU smoke test measured the training speed of both models on the free Kaggle T4, which made a full
+run about 25 hours. The budget was therefore set so the slower model finishes within one 11-hour free
+session, and the step size was reduced so the shorter runs still get about 2,600 optimizer updates.
+TODO(results): cite the measured tokens per second from `results/smoke/smoke_report.md`.
+
+**Learning rate.** The Transformer and Mamba are each trained for 30M tokens, with the same step size
+as the main runs, at learning rates 3e-4, 6e-4, 1.2e-3 and 2.4e-3. The rate with the lowest validation
+loss is used for the full runs. Mamba-LTI uses the Mamba rate.
 
 TODO(results): the sweep table and chosen rates from `results/S/lr_sweep.csv` and
 `results/S/best_lr.json`. Note whether a best rate sits at the edge of the grid.
@@ -204,8 +209,8 @@ test split.
 | E2 | Does selectivity matter? | Mamba vs Mamba-LTI on E1, and on selective copying (16 tokens among noise, width 64, lengths 64 to 512) |
 | E3 | Associative recall | MQAR: widths 64, 128, 256; lengths 64 to 512; key-value pairs = 0.25·L/2; 2 Transformer layers vs 4 Mamba layers; 4,000 steps, batch 64; best of learning rates 1e-3 and 3e-3; accuracy on 1,000 held-out sequences. Natural text: a test token is a *recall hit* if the pair (previous token, token) already appeared earlier in the same window |
 | E4 | Length extrapolation | First 16,384 tokens of each PG-19 book in one forward pass; loss averaged in position bins that double in size from 128 tokens; seed-0 models. RoPE is used past 1,024 without scaling |
-| E5 | Inference efficiency | Randomly initialised M-size models; prefill latency, peak memory, throughput and per-token decode latency for 512 to 32,768 tokens at batch 1 and 8; CUDA-event timing after warm-up, median of repeats; out-of-memory recorded as missing points; one row per Mamba backend |
-| E6 | Mechanism | Δ per token on validation text, memory horizon 1/(Δ·\|A\|), and Transformer attention maps, for the largest finished pair |
+| E5 | Inference efficiency | Randomly initialised ~98M-parameter models (speed does not depend on the weights); prefill latency, peak memory, throughput and per-token decode latency for 512 to 32,768 tokens at batch 1 and 8; CUDA-event timing after warm-up, median of repeats; out-of-memory recorded as missing points; one row per Mamba backend |
+| E6 | Mechanism | Δ per token on validation text, memory horizon 1/(Δ·\|A\|), and Transformer attention maps, for the seed-0 pair |
 | E7 | Hybrid (optional) | Not run in this version |
 
 ## 7. Results
@@ -219,8 +224,8 @@ TODO(results): paste `results/figures/table_main.md` here as Table 1.
 *Figure 1. Validation loss against training tokens and training FLOPs. The band is the min-max over
 seeds.*
 
-TODO(results): one paragraph. Which model has the lower test loss at S and at M? Is the gap larger
-than the seed spread at S? Does it change from S to M?
+TODO(results): one paragraph. Which model has the lower test loss? Is the gap larger than the seed
+spread? Does Mamba-LTI fall behind Mamba?
 
 ### 7.2 Selectivity ablation (E2)
 
@@ -267,14 +272,13 @@ Transformer run out of memory? How does decode latency scale for each model?
 
 ### 7.6 What selectivity does (E6)
 
-![Δ per token](../results/analysis/M/delta_heatmap.png)
+![Δ per token](../results/analysis/S/delta_heatmap.png)
 
-![Memory horizon](../results/analysis/M/memory_horizon.png)
+![Memory horizon](../results/analysis/S/memory_horizon.png)
 
-![Attention maps](../results/analysis/M/attention_maps.png)
+![Attention maps](../results/analysis/S/attention_maps.png)
 
-TODO(results): from `results/analysis/<scale>/delta_stats.json`. Use `analysis/S/` if the M pair did
-not finish. Which tokens get large Δ? How does the spread of memory horizons compare with the
+TODO(results): from `results/analysis/S/delta_stats.json`. Which tokens get large Δ? How does the spread of memory horizons compare with the
 training length?
 
 ## 8. Discussion
@@ -287,12 +291,14 @@ TODO(results). Answer the research question in one paragraph, then cover:
 
 ## 9. Limitations
 
-- **Scale.** The models have 47M and 98M parameters and see about 20 tokens per parameter. Published
-  Mamba results start at 130M parameters and much larger token budgets, so our trends may not hold
-  at larger scale.
-- **Seeds.** Scale S has 3 seeds and scale M has 1. A difference at M smaller than the seed spread
-  at S should not be called significant.
-- **Learning rate.** The rate is tuned at S with 100M tokens. Scale M uses a fixed 0.6 multiplier.
+- **Scale and budget.** The models have 47M parameters and see 340M tokens, about 7 per parameter,
+  below the compute-optimal ~20. Published Mamba results start at 130M parameters and much larger
+  token budgets, so our trends may not hold at larger scale or with longer training. A ~98M-parameter
+  pair was configured but not trained: on a free T4 each run would take several days.
+  TODO(results): cite the estimate from `results/smoke/smoke_report.md`.
+- **Seeds.** The Transformer and Mamba have 3 seeds each and Mamba-LTI has 2. Differences smaller than
+  the seed spread should not be called significant.
+- **Learning rate.** The rate is tuned with 30M-token runs, shorter than the 340M-token main runs.
 - **One corpus and one tokenizer.** Perplexities compare only models that share this tokenizer and
   test set.
 - **Free hardware.** The T4 has no native bf16, so training uses fp16. If `mamba-ssm` does not
@@ -310,8 +316,7 @@ The Review 1 pilot (`results/pilot/README.md`) trained one 557,696-parameter Tra
 tokens, reached a best validation perplexity of 114.60 and trained no Mamba model. The feedback was
 that the model was far too small and that the comparison was never made. This version changes:
 
-1. **Size and budget.** Models are about 84 times larger, and each trains on a compute-optimal
-   budget.
+1. **Size and budget.** Models are about 84 times larger and train on about 1,100 times more tokens.
 2. **Both architectures.** Both are trained and compared under identical conditions.
 3. **A Mamba scan that trains at real size.** The chunked scan replaces the parallel scan, which ran
    out of memory.

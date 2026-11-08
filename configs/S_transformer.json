@@ -8,8 +8,8 @@
   "train": {
     "seq_len": 1024,
     "micro_batch": 16,
-    "grad_accum": 32,
-    "total_tokens": 940000000,
+    "grad_accum": 8,
+    "total_tokens": 340000000,
     "lr": 0.0006,
     "eval_every": 150
   }

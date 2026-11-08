@@ -26,7 +26,7 @@ from afml.train import DEFAULT_TRAIN  # noqa: E402
 
 TARGETS = ["S_transformer", "S_mamba", "S_mamba_lti", "M_transformer", "M_mamba", "M_mamba_lti"]
 SWEEP_LRS = 4               # scripts/sweep_lr.py defaults
-SWEEP_TOKENS = 100_000_000
+SWEEP_TOKENS = 30_000_000
 
 
 def label(summary):

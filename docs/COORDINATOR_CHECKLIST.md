@@ -23,8 +23,9 @@ Links you will need:
    - When it succeeds, download `afml/results/smoke/smoke_report.md` from the Output tab and copy the
      last 40 lines of the log.
 5. **Wait** until the training-token budget is set from the smoke numbers and pushed.
-6. **Learning-rate sweep** (about 3 to 7 hours; fine overnight).
-   - Notebook name `afml-sweep`. Input: `afml-data`.
+6. **Learning-rate sweep** (about 3.5 hours).
+   - Notebook name `afml-sweep`. Inputs: `afml-data` **and** `afml-smoke` (so the measured speeds end up
+     in the final results for the report).
    - First cell: `STAGES = {'sweep'}`. Leave `ONLY_RUNS = None`.
    - When it succeeds, the log ends with the best learning rates, and the Output has
      `afml/results/S/best_lr.json`. Check the last 40 lines of the log.
@@ -57,8 +58,8 @@ Links you will need:
 
 | Account | Uses about |
 | --- | --- |
-| Gagandeep | smoke 1 h + sweep 3 to 7 h + main run 11 h + final 4 to 6 h = 19 to 25 h |
-| Each teammate | 11 h |
+| Gagandeep | smoke 0.4 h + sweep 3.5 h + main run 9.5 h + final 4 to 6 h = about 18 to 20 h |
+| Each teammate | about 9.5 h |
 
 ---
 
@@ -92,6 +93,6 @@ The two inputs to add (search for them in "Add Input"):
 - afml-sweep: https://www.kaggle.com/code/gagandeep26032006/afml-sweep
 
 Use YOUR OWN ONLY_RUNS line from the table. After about 10 minutes, do "The 10-minute check" and
-send me a screenshot of the Logs. When it finishes (about 11 hours), do Part 3 and send me your
+send me a screenshot of the Logs. When it finishes (about 10 hours), do Part 3 and send me your
 notebook link.
 ```

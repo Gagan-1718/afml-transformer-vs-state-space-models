@@ -10,7 +10,7 @@ win or lose: memory recall, long context, inference speed and memory?
 
 | ID | Experiment | Script |
 | --- | --- | --- |
-| E1 | Transformer vs Mamba vs Mamba-LTI at ~47M (3 seeds) and ~98M parameters, ~20 tokens/parameter | `afml/train.py` |
+| E1 | Transformer vs Mamba (3 seeds each) vs Mamba-LTI (2 seeds) at ~47M parameters, 340M training tokens each | `afml/train.py` |
 | E2 | Selectivity ablation: Mamba vs time-invariant Mamba (LM loss + selective copying) | `configs/*_mamba_lti.json`, `afml/eval/synthetic.py` |
 | E3 | Associative recall: MQAR grid, and test loss split into recall-hit vs other tokens | `afml/eval/synthetic.py`, `afml/eval/perplexity.py` |
 | E4 | Length extrapolation: per-position loss on PG-19 books up to 16K tokens (trained at 1K) | `afml/eval/long_context.py` |
@@ -22,10 +22,15 @@ Model sizes (vocabulary 16,384; Mamba uses 2 layers per Transformer layer, `d_in
 
 | Scale | Width | Transformer | Mamba | Non-embedding params | Total params | Mismatch | Training tokens | Role |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| S | 512 | 12 layers | 24 layers, d_inner 968 | 38.5M | ~47M | 0.22% | 940M | main study, 3 seeds |
-| M | 768 | 12 layers | 24 layers, d_inner 1440 | 85.0M | ~98M | 0.11% | 1.95B | scale check, 1 seed |
+| S | 512 | 12 layers | 24 layers, d_inner 968 | 38.5M | ~47M | 0.22% | 340M | main study |
+| M | 768 | 12 layers | 24 layers, d_inner 1440 | 85.0M | ~98M | 0.11% | 1.95B | configured, not run (~100 h per run on a T4) |
 
 The time-invariant ablation (Mamba-LTI, S only) uses d_inner 1032 (mismatch 0.20%).
+
+**Why 340M tokens and not ~20 per parameter (940M):** the Kaggle T4 smoke test measured about 10,400
+training tokens/s for both models (Mamba with the `mamba-ssm` kernel), so 940M tokens would take ~25 h per
+run. 340M tokens fits one 11-hour free session (~9.3 h). Both models always get identical tokens. Steps are
+131,072 tokens (~2,600 optimizer steps) so the shorter runs still get many updates.
 
 ## Code map
 
@@ -70,13 +75,13 @@ python -m pytest -q
 about 30 free GPU-hours per week after phone verification) or Colab. Set `STAGES` in the first code
 cell, then run. Every stage is resumable.
 
-1. `data` — build the token files once: 2B training tokens (2–3 h).
-2. `smoke` — 20-step GPU check: speed, memory and time estimates for full runs.
-3. `sweep` — learning-rate sweep at scale S.
-4. `S` — 3 models × 3 seeds.
+1. `data` — build the token files once: 2B training tokens (1.1 h, CPU session).
+2. `smoke` — 20-step GPU check: speed, memory and time estimates for full runs (0.3 h).
+3. `sweep` — learning-rate sweep at scale S (about 3.5 h).
+4. `S` — the main runs, about 9.5 h each, split over team accounts with `ONLY_RUNS`.
 5. `synthetic` — MQAR and selective-copying grids.
-6. `eval` — test perplexity, PG-19, efficiency, Δ analysis (run again after `M`).
-7. `M` — 2 models × 1 seed.
+6. `eval` — test perplexity, PG-19, efficiency, Δ analysis.
+7. `M` — 98M models; configured but not in the current plan (~100 h per run on a T4).
 8. `figures` — all figures, `table_main.md`, and `results.zip`.
 
 On Kaggle: run each stage with *Save Version → Save & Run All* (Internet on, GPU **T4 x2**). Next
@@ -110,7 +115,8 @@ python scripts/make_figures.py --results results --out results/figures
 - Perplexities compare only models sharing this tokenizer and test set.
 - Speed claims name the scan backend: pure-PyTorch Mamba is slower than the fused kernel, which is
   an implementation effect, not an architecture effect.
-- Results at 47–98M parameters (~20 tokens/parameter) may not hold at billions of parameters.
+- Results at ~47M parameters and 340M training tokens (~7 per parameter, below the compute-optimal ~20)
+  may not hold at larger scale or longer training.
 
 ## References
 

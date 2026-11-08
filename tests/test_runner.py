@@ -68,7 +68,7 @@ def test_smoke_report(data_dir, tmp_path):
     assert all(m["tokens_per_sec"] > 0 and m["eval_s_per_token"] > 0 for m in measured)
     assert [m["scan_backend"] for m in measured] == [None, "chunked"]
     t = {"transformer": rep.target_cost("S_transformer", 512), "mamba": rep.target_cost("S_mamba", 512)}
-    assert t["transformer"]["total_tokens"] == 940_000_000
+    assert t["transformer"]["total_tokens"] == 340_000_000
     targets = {"S_transformer": t["transformer"], "S_mamba": t["mamba"], "S_mamba_lti": t["mamba"],
                "M_transformer": t["transformer"], "M_mamba": t["mamba"]}
     est = rep.estimate(measured, targets)

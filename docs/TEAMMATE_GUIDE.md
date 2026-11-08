@@ -122,7 +122,7 @@ left to other accounts (ONLY_RUNS): [ ...the 7 runs that are not yours... ]
 
 | What you see | What to do |
 | --- | --- |
-| All lines as above, with **your** two run names | Nothing. Close everything and come back in about 11 hours |
+| All lines as above, with **your** two run names | Nothing. Close everything and come back in about 10 hours |
 | `mamba-ssm fused kernel available: False` | **Stop the version** (Cancel/Stop on the version page) and send Gagandeep the log. Without the kernel, Mamba is far too slow |
 | `GPUs: none` or only one GPU | Accelerator was not `GPU T4 x2`. Stop the version, fix step 4, start again |
 | The version shows **Failed** | Open **Logs**, copy everything, send it to Gagandeep |
@@ -130,7 +130,7 @@ left to other accounts (ONLY_RUNS): [ ...the 7 runs that are not yours... ]
 
 ---
 
-## Part 3: when your run finishes (about 11 hours later, 5 minutes)
+## Part 3: when your run finishes (about 10 hours later, 5 minutes)
 
 1. Open your notebook page → latest version. It should say it **succeeded** (not Failed or Running).
 2. In **Logs**, near the end, check for two lines starting with `done` that name **your two runs**, for
@@ -153,7 +153,7 @@ You are finished. Keep the notebook until Gagandeep confirms he has everything.
 
 ## Quick answers
 
-- **Does it cost anything?** No. Kaggle gives about 30 free GPU hours per week; this uses about 11.
+- **Does it cost anything?** No. Kaggle gives 30 free GPU hours per week; this uses about 10.
 - **Can I use my laptop meanwhile, or shut it down?** Yes. The run is on Kaggle's servers.
 - **I have my own graphics card. Should I train locally?** No. The fast Mamba kernel needs Linux, and
   all runs must use the same setup to be comparable.

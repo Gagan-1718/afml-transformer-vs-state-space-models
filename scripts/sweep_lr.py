@@ -15,7 +15,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_LRS = [3e-4, 6e-4, 1.2e-3, 2.4e-3]
-DEFAULT_TOKENS = 100_000_000
+DEFAULT_TOKENS = 30_000_000  # ~230 steps at S; ~50 min per run on a T4
 PAUSED_EXIT_CODE = 75  # same as afml.train: stopped at --stop-at, rerun to resume
 
 

@@ -17,8 +17,11 @@ from afml.models import ModelConfig, build_model, count_params  # noqa: E402
 
 VOCAB = 16384
 SCALES = {
-    #      d_model, tf_layers, heads, train settings (~20 training tokens per parameter)
-    "S": (512, 12, 8, {"micro_batch": 16, "grad_accum": 32, "total_tokens": 940_000_000, "lr": 6e-4,
+    #      d_model, tf_layers, heads, train settings
+    # S: 340M tokens (~7 per parameter) in steps of 131,072 tokens. Sized from the Kaggle T4 smoke test
+    # (2026-11-09: ~10,400 tokens/s for both models) so one run fits in one 11-hour session (~9.3 h).
+    # The planned 940M tokens (~20 per parameter) would take ~25 h per run.
+    "S": (512, 12, 8, {"micro_batch": 16, "grad_accum": 8, "total_tokens": 340_000_000, "lr": 6e-4,
                        "eval_every": 150}),
     "M": (768, 12, 12, {"micro_batch": 8, "grad_accum": 64, "total_tokens": 1_950_000_000, "lr": 4e-4,
                         "eval_every": 150}),
