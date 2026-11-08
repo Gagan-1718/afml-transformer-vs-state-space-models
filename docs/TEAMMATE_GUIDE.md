@@ -70,8 +70,10 @@ That is all for today.
 His GO message contains two links: his notebooks **`afml-data`** (the dataset) and **`afml-sweep`**
 (the learning rates). You need both.
 
+0. **Download `run_study.ipynb` again now** (same link as Part 1, step 4). The notebook was updated on
+   8 Nov in the evening; a copy downloaded earlier uses the wrong learning rate.
 1. On Kaggle, click **+ Create** (top left) → **New Notebook**. An editor opens.
-2. Top menu **File** → **Import Notebook** → upload `run_study.ipynb` → confirm. The notebook's cells
+2. Top menu **File** → **Import Notebook** → upload the **newly downloaded** `run_study.ipynb` → confirm. The notebook's cells
    replace the empty notebook. (The first cell is a title: "Transformer vs Mamba: full study runner".)
 3. Click the notebook title at the top left and rename it to **your notebook name** from the table,
    for example `afml-main-krishna`.
@@ -124,6 +126,7 @@ left to other accounts (ONLY_RUNS): [ ...the 7 runs that are not yours... ]
 | What you see | What to do |
 | --- | --- |
 | All lines as above, with **your** two run names | Nothing. Close everything and come back in about 10 hours |
+| There is **no** `learning rates (from the sweep)` line before the `start` lines | Outdated notebook file. **Stop the version**, download `run_study.ipynb` again (Part 2, step 0), make a new notebook, start again |
 | The `learning rates` line shows different numbers (for example `'mamba': 0.0024`) | **Stop the version** and send Gagandeep the log |
 | `mamba-ssm fused kernel available: False` | **Stop the version** (Cancel/Stop on the version page) and send Gagandeep the log. Without the kernel, Mamba is far too slow |
 | `GPUs: none` or only one GPU | Accelerator was not `GPU T4 x2`. Stop the version, fix step 4, start again |
