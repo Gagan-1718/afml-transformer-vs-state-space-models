@@ -125,6 +125,9 @@ def selective_scan_chunked(u, delta, A, B, C, D, h0=None, chunk_size=64):
 
 
 def selective_scan_cuda(u, delta, A, B, C, D, h0=None):
+    """The fused mamba-ssm kernel. Its backward pass ignores any gradient flowing into the returned
+    final state (documented in mamba-ssm), so h is returned detached. Training never uses h (the loss
+    depends only on y), so training gradients are exact; tests check this against the other backends."""
     if _cuda_scan_fn is None:
         raise RuntimeError("scan='cuda' needs the mamba-ssm package (pip install mamba-ssm)")
     if h0 is not None:
@@ -134,7 +137,7 @@ def selective_scan_cuda(u, delta, A, B, C, D, h0=None):
         B.transpose(1, 2).contiguous(), C.transpose(1, 2).contiguous(), D.contiguous(),
         return_last_state=True,
     )
-    return y.transpose(1, 2), h
+    return y.transpose(1, 2), h.detach()
 
 
 def selective_scan_step(h, u, delta, A, B, C, D):

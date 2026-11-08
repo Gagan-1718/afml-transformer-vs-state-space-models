@@ -70,15 +70,59 @@ def test_chunked_does_not_store_full_state_tensor():
     assert sum(saved) > 4 * b * l * d * n  # the parallel scan keeps many of them
 
 
+def rel_err(a, b):
+    return ((a - b).norm() / b.norm().clamp_min(1e-12)).item()
+
+
 @pytest.mark.skipif(not (HAS_CUDA_SCAN and torch.cuda.is_available()), reason="needs mamba-ssm and a GPU")
 def test_cuda_kernel_matches_reference():
+    # The kernel's backward ignores gradients into the final state h (documented in mamba-ssm), so
+    # gradients are compared for a loss on y only, which is what training uses. h is checked forward.
     args = inputs(b=2, l=300, d=16, n=8, device="cuda")
-    y0, h0, g0 = run(selective_scan_sequential, args)
-    y1, h1, g1 = run(selective_scan_cuda, args)
+    y0, h0 = selective_scan_sequential(*args)
+    y0.square().sum().backward()
+    g0 = [a.grad.clone() for a in args]
+    for a in args:
+        a.grad = None
+    y1, h1 = selective_scan_cuda(*args)
+    assert not h1.requires_grad  # returned detached on purpose
+    y1.square().sum().backward()
+    g1 = [a.grad.clone() for a in args]
     torch.testing.assert_close(y1, y0, atol=1e-3, rtol=1e-3)
-    torch.testing.assert_close(h1, h0, atol=1e-3, rtol=1e-3)
-    for a, b in zip(g1, g0):
-        torch.testing.assert_close(a, b, atol=1e-2, rtol=1e-2)
+    torch.testing.assert_close(h1, h0.detach(), atol=1e-3, rtol=1e-3)
+    for name, a, b in zip(["u", "delta", "A", "B", "C", "D"], g1, g0):
+        assert rel_err(a, b) < 1e-3, (name, rel_err(a, b))
+
+
+BLOCK_PAIRS = [("chunked", "sequential", "cpu")]
+if HAS_CUDA_SCAN and torch.cuda.is_available():
+    BLOCK_PAIRS.append(("chunked", "cuda", "cuda"))
+
+
+@pytest.mark.parametrize("selective", [True, False])
+@pytest.mark.parametrize("ref,other,device", BLOCK_PAIRS)
+def test_block_training_gradients_match_across_backends(ref, other, device, selective):
+    """What training sees: a whole Mamba block (selective or LTI), loss on its output, every parameter
+    gradient. On a GPU with mamba-ssm this compares our chunked scan with the fused kernel."""
+    from dataclasses import replace
+
+    from afml.config import ModelConfig
+    from afml.models.mamba import MambaBlock
+    torch.manual_seed(0)
+    cfg = ModelConfig(arch="mamba", d_model=32, d_inner=64, d_state=16, selective=selective, scan=ref,
+                      chunk_size=64)
+    a = MambaBlock(cfg).to(device)
+    b = MambaBlock(replace(cfg, scan=other)).to(device)
+    b.load_state_dict(a.state_dict())
+    x = torch.randn(2, 300, 32, device=device)
+    outs = []
+    for blk in (a, b):
+        out = blk(x)
+        out.square().mean().backward()
+        outs.append(out.detach())
+    torch.testing.assert_close(outs[1], outs[0], atol=1e-4, rtol=1e-3)
+    for (name, pa), pb in zip(a.named_parameters(), b.parameters()):
+        assert rel_err(pb.grad, pa.grad) < 1e-3, (name, rel_err(pb.grad, pa.grad))
 
 
 def _fake_mamba_pkg(root, interface_body):
