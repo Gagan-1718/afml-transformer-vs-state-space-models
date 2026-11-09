@@ -279,7 +279,7 @@ pretraining checkpoint with identical settings (`afml/sft.py`):
 | Epochs | 2 |
 | Gradient clipping | 1.0 |
 | Precision | fp16 with loss scaling; the scan in fp32 |
-| Learning rate | 3e-5, 1e-4 and 3e-4 for each model; chosen on validation response loss with the same tie rule as pretraining (within 0.01 → the lowest rate) |
+| Learning rate | 3e-5, 1e-4, 3e-4 and 1e-3 for each model (1e-3 was added because both models were best at 3e-4, the edge of the first grid); chosen on validation response loss with the same tie rule as pretraining (within 0.01 → the lowest rate) |
 | Validation | every validation example, at step 0, every 100 steps and at the end; the best checkpoint is kept |
 
 TODO(results): the chosen rate, steps and training time per model, and the scan backend, from

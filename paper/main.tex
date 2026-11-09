@@ -301,8 +301,9 @@ settings. Every weight is trained. The loss is cross-entropy on the response tok
 end-of-document token only. We use AdamW with $\beta = (0.9, 0.95)$ and no weight decay, 64 examples per
 step (micro-batch 8, accumulation 8, right-padded and grouped by length), 2 epochs, linear warmup over
 3\% of the steps and cosine decay to 10\% of the peak, gradient clipping at 1.0, and fp16 with the scan
-in fp32. Each model is fine-tuned at learning rates $3\times10^{-5}$, $10^{-4}$ and $3\times10^{-4}$; the
-rate is chosen on validation response loss with the same tie rule as in pretraining, and the checkpoint
+in fp32. Each model is fine-tuned at learning rates $3\times10^{-5}$, $10^{-4}$, $3\times10^{-4}$ and
+$10^{-3}$ (the last was added because both models were best at $3\times10^{-4}$, the edge of the first
+grid); the rate is chosen on validation response loss with the same tie rule as in pretraining, and the checkpoint
 with the lowest validation loss is kept.
 \todo{chosen rates, training time and scan backend from results/sft/lr\_sweep.csv.}
 
