@@ -3,13 +3,17 @@
 Uses randomly initialised models of the study's sizes (speed does not depend on the weights).
 Every Mamba measurement is repeated per scan backend so implementation effects are visible.
 Protocol: one GPU, fixed precision, warm-up runs, median of repeated CUDA-event timings.
+The CSV is rewritten after every measurement, so a stopped session keeps what it measured.
+Once a prefill takes longer than --max-prefill-ms, longer lengths at that batch size are recorded
+as "skipped_slow" for that model and backend (this bounds the slow pure-PyTorch scan).
 
-    python -m afml.eval.bench --configs configs/M_transformer.json configs/M_mamba.json \
+    python -m afml.eval.bench --configs configs/S_transformer.json configs/S_mamba.json \
         --lengths 512 1024 2048 4096 8192 16384 --out results/bench/bench.csv
 """
 import argparse
 import csv
 import json
+import os
 import statistics
 from pathlib import Path
 
@@ -19,6 +23,23 @@ from ..config import ModelConfig
 from ..models import build_model, count_params
 from ..models.mamba import HAS_CUDA_SCAN
 from .common import Timer, device_auto
+
+DEFAULT_BACKENDS = ["cuda", "chunked"]  # the official kernel first, so the slow chunked scan cannot crowd it out
+FIELDS = ["config", "arch", "backend", "params_total", "device", "precision", "seq_len", "batch", "status",
+          "prefill_ms", "prefill_peak_mb", "prefill_tokens_per_s", "decode_ms_per_token", "decode_tokens_per_s",
+          "decode_peak_mb", "cache_mb_analytic", "weights_mb"]
+
+
+def write_rows(path, rows):
+    # Write to a temporary file, then rename, so the CSV is never half-written.
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(".tmp")
+    with open(tmp, "w", newline="") as f:
+        w = csv.DictWriter(f, fieldnames=FIELDS, restval="")
+        w.writeheader()
+        w.writerows(rows)
+    os.replace(tmp, path)
 
 
 def _dtype(name):
@@ -47,13 +68,21 @@ def _median_ms(fn, device, warmup, repeats):
 
 
 @torch.no_grad()
-def bench_model(model, label, lengths, batches, device, dtype, warmup, repeats, decode_tokens):
+def bench_model(model, label, lengths, batches, device, dtype, warmup, repeats, decode_tokens,
+                max_prefill_ms=float("inf"), on_row=lambda row: None):
     rows = []
     vocab = model.cfg.vocab_size
     weights_mb = sum(p.numel() * p.element_size() for p in model.parameters()) / 2**20
+    too_slow = set()  # batch sizes whose prefill already took longer than max_prefill_ms
     for L in lengths:
         for b in batches:
             row = {**label, "seq_len": L, "batch": b}
+            if b in too_slow:
+                row["status"] = "skipped_slow"
+                print(row, flush=True)
+                rows.append(row)
+                on_row(row)
+                continue
             idx = torch.randint(0, vocab, (b, L), device=device)
             try:
                 _peak_reset(device)
@@ -87,6 +116,9 @@ def bench_model(model, label, lengths, batches, device, dtype, warmup, repeats, 
                 torch.cuda.empty_cache()
             print(row, flush=True)
             rows.append(row)
+            on_row(row)
+            if row["status"] == "ok" and row["prefill_ms"] > max_prefill_ms:
+                too_slow.add(b)
             if row["status"] == "oom":
                 break  # larger batches will not fit either
     return rows
@@ -98,8 +130,10 @@ def main():
     ap.add_argument("--vocab", type=int, default=16384)
     ap.add_argument("--lengths", nargs="+", type=int, default=[512, 1024, 2048, 4096, 8192, 16384])
     ap.add_argument("--batches", nargs="+", type=int, default=[1, 8])
-    ap.add_argument("--backends", nargs="+", default=["chunked", "cuda"],
-                    help="Mamba scan backends to time (cuda is skipped if mamba-ssm is missing)")
+    ap.add_argument("--backends", nargs="+", default=DEFAULT_BACKENDS,
+                    help="Mamba scan backends to time, in this order (cuda is skipped if mamba-ssm is missing)")
+    ap.add_argument("--max-prefill-ms", type=float, default=20000.0,
+                    help="after a prefill slower than this, skip longer lengths at that batch size")
     ap.add_argument("--precision", default="fp16")
     ap.add_argument("--warmup", type=int, default=3)
     ap.add_argument("--repeats", type=int, default=10)
@@ -124,15 +158,16 @@ def main():
             label = {"config": Path(path).stem, "arch": cfg.arch, "backend": backend,
                      "params_total": count_params(model), "device":
                      torch.cuda.get_device_name() if device == "cuda" else "cpu", "precision": str(dtype)}
+            done = list(rows)  # rows from earlier models; saved together with each new row
+
+            def save(row, done=done):
+                done.append(row)
+                write_rows(a.out, done)
+
             rows += bench_model(model, label, a.lengths, a.batches, device, dtype, a.warmup, a.repeats,
-                                a.decode_tokens)
+                                a.decode_tokens, a.max_prefill_ms, on_row=save)
             del model
-    Path(a.out).parent.mkdir(parents=True, exist_ok=True)
-    fields = sorted({k for r in rows for k in r}, key=lambda k: list(rows[0]).index(k) if k in rows[0] else 99)
-    with open(a.out, "w", newline="") as f:
-        w = csv.DictWriter(f, fieldnames=fields)
-        w.writeheader()
-        w.writerows(rows)
+    write_rows(a.out, rows)
 
 
 if __name__ == "__main__":

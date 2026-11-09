@@ -245,7 +245,8 @@ def fig_bench(res, out):
     axes[0].legend(fontsize=7)
     dev = rows[0].get("device", "")
     fig.suptitle(f"Inference cost vs length, batch {batch}, {dev}, {rows[0].get('precision', '')} "
-                 "(missing points = out of memory)", x=0.01, y=1.02, ha="left")
+                 "(missing points = out of memory, or skipped after a prefill over 20 s)", x=0.01, y=1.02,
+                 ha="left")
     fig.savefig(out / "fig6_efficiency.png")
     plt.close(fig)
 
