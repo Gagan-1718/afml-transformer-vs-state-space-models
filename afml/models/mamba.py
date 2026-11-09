@@ -104,7 +104,8 @@ def _scan_chunk(u, delta, A, B, C, h0):
     a, x = _discretize(u, delta, A, B)
     a_cum, h = _hillis_steele(a, x)
     h = h + a_cum * h0.unsqueeze(1)
-    return torch.einsum("bldn,bln->bld", h, C), h[:, -1]
+    # Copy the last state: a view h[:, -1] would keep the whole (b, chunk, d, n) tensor alive.
+    return torch.einsum("bldn,bln->bld", h, C), h[:, -1].clone()
 
 
 def selective_scan_chunked(u, delta, A, B, C, D, h0=None, chunk_size=64):
@@ -237,7 +238,10 @@ class MambaBlock(nn.Module):
         conv_state = x_raw.transpose(1, 2)[..., -self.d_conv:]
         if conv_state.shape[-1] < self.d_conv:
             conv_state = F.pad(conv_state, (self.d_conv - conv_state.shape[-1], 0))
-        return out, (conv_state.float().contiguous(), h.float())
+        # Compact copies: the scans can return the last state as a view of a larger buffer (mamba-ssm's
+        # selective_scan_fn slices it from its per-chunk states), which the cache would otherwise keep alive.
+        compact = lambda t: t.float().clone(memory_format=torch.contiguous_format)  # noqa: E731
+        return out, (compact(conv_state), compact(h))
 
     def init_state(self, batch: int, device=None, dtype=torch.float32):
         return (

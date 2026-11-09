@@ -14,6 +14,17 @@ def tiny(**kw) -> ModelConfig:
     return ModelConfig(**base)
 
 
+@pytest.mark.parametrize("scan", ["chunked", "parallel", "sequential"])
+def test_prefill_state_keeps_no_extra_memory(scan):
+    # The cached state must own only its own bytes, not a view into the scan's (b, l, d, n) buffers.
+    model = build_model(tiny(arch="mamba", scan=scan)).eval()
+    caches = model.init_cache(3, 40)
+    model.prefill(torch.randint(0, 64, (3, 20)), caches)
+    for cache in caches:
+        for t in cache["state"]:
+            assert t.is_contiguous() and t.untyped_storage().nbytes() == t.numel() * t.element_size()
+
+
 @pytest.mark.parametrize("selective", [True, False])
 def test_recurrent_step_matches_parallel_forward(selective):
     torch.manual_seed(0)
