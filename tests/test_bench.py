@@ -46,5 +46,19 @@ def test_bench_rows_saved_as_they_are_measured(tmp_path, monkeypatch):
     assert seen[:8] == list(range(1, 9))  # one save per measurement, earlier models' rows kept
 
 
+def test_prefill_is_timed_as_generation_runs_it(tmp_path, monkeypatch):
+    # Generation never scores every prompt position, so the full forward pass (logits for all positions)
+    # must not be what the benchmark times.
+    from afml.models.lm import LM
+
+    def full_forward(*args, **kwargs):
+        raise AssertionError("the benchmark used the full forward pass")
+
+    monkeypatch.setattr(LM, "forward", full_forward)
+    _, rows = _run(tmp_path, monkeypatch)
+    assert all(r["status"] == "ok" and float(r["prefill_ms"]) > 0 and float(r["decode_ms_per_token"]) > 0
+               for r in rows)
+
+
 def test_kernel_backend_is_timed_first():
     assert bench.DEFAULT_BACKENDS == ["cuda", "chunked"]

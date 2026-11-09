@@ -221,9 +221,11 @@ def fig_bench(res, out):
     rows = [r for r in read_csv(p) if r["status"] == "ok"]
     batch = min(int(r["batch"]) for r in rows)
     rows = [r for r in rows if int(r["batch"]) == batch]
-    fig, axes = plt.subplots(1, 3, figsize=(14, 3.6))
-    specs = (("prefill_ms", "Prefill latency (ms)"), ("prefill_peak_mb", "Peak memory during prefill (MiB)"),
-             ("decode_ms_per_token", "Decode latency per new token (ms)"))
+    fig, axes = plt.subplots(1, 4, figsize=(17, 3.6))
+    specs = (("prefill_ms", "Prefill latency (ms)"),
+             ("prefill_peak_mb", "Peak memory, prefill incl. cache (MiB)"),
+             ("decode_ms_per_token", "Decode latency per new token (ms)"),
+             ("decode_peak_mb", "Peak memory while decoding (MiB)"))
     for ax, (key, label) in zip(axes, specs):
         drawn = False
         series = defaultdict(list)

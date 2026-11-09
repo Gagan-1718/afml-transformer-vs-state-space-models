@@ -329,9 +329,10 @@ per-token loss averaged in position bins that double in size from 128 tokens, fo
 RoPE is applied beyond 1,024 positions without rescaling.
 
 \textbf{E5, efficiency.} Randomly initialised models with the trained configurations (speed does not
-depend on the weights), fp16 on one T4: prefill latency, peak memory and throughput, and per-token
-decode latency with a KV cache (Transformer) or the recurrent state (Mamba), for 512 to 32,768 tokens at
-batch 1 and 8. Timing uses CUDA events, the median of 10 runs after 3 warm-up runs. Mamba is timed with
+depend on the weights), fp16 on one T4: prefill latency, throughput and peak memory, and per-token
+decode latency and peak memory with a KV cache (Transformer) or the recurrent state (Mamba), for 512 to
+32,768 tokens at batch 1 and 8. Prefill is measured as generation runs it: the prompt fills the cache or
+state and only the last position is scored, and its peak memory includes the weights and the cache. Timing uses CUDA events, the median of 10 runs after 3 warm-up runs. Mamba is timed with
 both the \texttt{cuda} and the \texttt{chunked} backend. Out-of-memory points are missing, and once one
 prefill takes over 20 s, longer lengths at that batch size are skipped.
 
@@ -398,8 +399,8 @@ of memory, and how decode latency grows with length for each model.}
 \begin{figure*}[t]
 \centering
 \figfile[width=\textwidth]{figures/fig6_efficiency.png}
-\caption{Prefill latency, peak prefill memory and per-token decode latency against length. Line style
-shows the Mamba scan backend.}
+\caption{Prefill latency, peak prefill memory (including the cache), per-token decode latency and peak
+decoding memory against length. Line style shows the Mamba scan backend.}
 \label{fig:bench}
 \end{figure*}
 

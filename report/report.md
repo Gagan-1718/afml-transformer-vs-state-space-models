@@ -296,7 +296,7 @@ test split.
 | E2 | Does selectivity matter? | Mamba vs Mamba-LTI on E1, and on selective copying (16 tokens among noise, width 64, lengths 64 to 512) |
 | E3 | Associative recall | MQAR: widths 64, 128, 256; lengths 64 to 512; key-value pairs = 0.25·L/2; 2 Transformer layers vs 4 Mamba layers; 4,000 steps, batch 64; best of learning rates 1e-3 and 3e-3; accuracy on 1,000 held-out sequences. Natural text: a test token is a *recall hit* if the pair (previous token, token) already appeared earlier in the same window |
 | E4 | Length extrapolation | First 16,384 tokens of each PG-19 book in one forward pass; loss averaged in position bins that double in size from 128 tokens; seed-0 models. RoPE is used past 1,024 without scaling |
-| E5 | Inference efficiency | Randomly initialised models with the trained ~47M (S) configurations (speed does not depend on the weights); prefill latency, peak memory, throughput and per-token decode latency for 512 to 32,768 tokens at batch 1 and 8; CUDA-event timing after 3 warm-up runs, median of 10; one row per Mamba backend (official kernel first, then our chunked scan). Missing points are out of memory, or skipped: once one prefill takes over 20 s, longer lengths at that batch size are not timed |
+| E5 | Inference efficiency | Randomly initialised models with the trained ~47M (S) configurations (speed does not depend on the weights); prefill latency, throughput and peak memory, and per-token decode latency and peak memory, for 512 to 32,768 tokens at batch 1 and 8. Prefill is measured as generation runs it: the prompt fills the KV cache or the recurrent state and only the last position is scored; its peak memory includes the weights and the cache, and decoding memory is measured after the prefill. A first run timed a full forward pass that scored every position; its logits tensor dominated memory for both models, so it was replaced (`results/bench/README.md`); CUDA-event timing after 3 warm-up runs, median of 10; one row per Mamba backend (official kernel first, then our chunked scan). Missing points are out of memory, or skipped: once one prefill takes over 20 s, longer lengths at that batch size are not timed |
 | E6 | Mechanism | Δ per token on the first 256 tokens of the test split, memory horizon 1/(Δ·\|A\|), and Transformer attention maps on the same text, for the seed-0 pair (nothing is chosen with this text) |
 | E7 | Instruction following | For each model before and after fine-tuning: loss on the response tokens of every test example (prompt tokens not scored); greedy answers (at most 128 new tokens) to the first 100 test prompts, scored by ROUGE-L F1 (Lin, 2004) against the reference answer and by the share of answers that end with [EOS]; answers to 8 hand-written prompts, shown as examples. One seed. The test examples are scored once, after the learning rate is chosen on validation |
 
@@ -351,8 +351,8 @@ tokens?
 
 ![Figure 6: inference cost against length](../results/figures/fig6_efficiency.png)
 
-*Figure 6. Prefill latency, peak prefill memory and per-token decode latency against length. Line
-style shows the Mamba scan backend.*
+*Figure 6. Prefill latency, peak prefill memory (including the cache), per-token decode latency and
+peak decoding memory against length. Line style shows the Mamba scan backend.*
 
 TODO(results): from `results/bench/bench.csv`. Name the backend in every sentence. Where does the
 Transformer run out of memory? How does decode latency scale for each model?

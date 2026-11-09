@@ -3,6 +3,9 @@
 Uses randomly initialised models of the study's sizes (speed does not depend on the weights).
 Every Mamba measurement is repeated per scan backend so implementation effects are visible.
 Protocol: one GPU, fixed precision, warm-up runs, median of repeated CUDA-event timings.
+Prefill is measured as generation runs it (model.prefill: the prompt fills the KV cache or recurrent
+state, and only the last position is scored); its peak memory includes the weights and the cache.
+Decode memory is measured after the prefill: weights, the filled cache and one decoding step.
 The CSV is rewritten after every measurement, so a stopped session keeps what it measured.
 Once a prefill takes longer than --max-prefill-ms, longer lengths at that batch size are recorded
 as "skipped_slow" for that model and backend (this bounds the slow pure-PyTorch scan).
@@ -84,17 +87,20 @@ def bench_model(model, label, lengths, batches, device, dtype, warmup, repeats, 
                 on_row(row)
                 continue
             idx = torch.randint(0, vocab, (b, L), device=device)
+            caches, state = None, {}
             try:
+                # Prefill as generation runs it: the prompt fills the KV cache (Transformer) or the recurrent
+                # state (Mamba) and only the last position is scored. The cache is allocated first, so the
+                # peak includes it. (Scoring every position would add a batch x length x vocabulary logits
+                # tensor that is the same for both models and dominates memory at long lengths.)
                 _peak_reset(device)
-                row["prefill_ms"] = _median_ms(lambda: model(idx), device, warmup, repeats)
+                caches = model.init_cache(b, L + decode_tokens + warmup + 1, device, dtype)
+                row["prefill_ms"] = _median_ms(lambda: model.prefill(idx, caches), device, warmup, repeats)
                 row["prefill_peak_mb"] = _peak(device)
                 row["prefill_tokens_per_s"] = b * L / (row["prefill_ms"] / 1000)
 
-                _peak_reset(device)
-                caches = model.init_cache(b, L + decode_tokens + warmup + 1, device, dtype)
-                logits = model.prefill(idx, caches)
-                tok = logits.argmax(-1)
-                state = {"tok": tok}
+                state["tok"] = model.prefill(idx, caches).argmax(-1)  # a fresh prefill sets the decode position
+                _peak_reset(device)  # decoding memory: weights + filled cache + one step
 
                 def one_step():
                     state["tok"] = model.decode_step(state["tok"], caches).argmax(-1)
@@ -110,10 +116,12 @@ def bench_model(model, label, lengths, batches, device, dtype, warmup, repeats, 
                 row["cache_mb_analytic"] = model.cache_bytes(b, L, torch.tensor([], dtype=dtype).element_size()) / 2**20
                 row["weights_mb"] = weights_mb
                 row["status"] = "ok"
-                del caches
             except torch.cuda.OutOfMemoryError:
                 row["status"] = "oom"
-                torch.cuda.empty_cache()
+            finally:
+                caches, state = None, {}
+                if device == "cuda":
+                    torch.cuda.empty_cache()
             print(row, flush=True)
             rows.append(row)
             on_row(row)
