@@ -97,3 +97,34 @@ def test_synthetic_generators():
         data = x[i, :48][x[i, :48] > 1]
         assert x[i, 48] == 1  # separator
         assert torch.equal(y[i, -6:], data) and (y[i, :48] == IGNORE).all()
+
+
+def test_synthetic_curve_and_resume(tmp_path):
+    import csv
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    def read(p):
+        with open(p, newline="") as f:
+            return list(csv.DictReader(f))
+
+    out, curve = tmp_path / "sc.csv", tmp_path / "sc_curve.csv"
+    cmd = [sys.executable, "-m", "afml.eval.synthetic", "--task", "selective_copy", "--archs", "transformer",
+           "mamba", "--d-models", "16", "--seq-lens", "24", "--num-tokens", "4", "--lrs", "1e-3", "--steps", "20",
+           "--eval-every", "10", "--eval-n", "16", "--batch", "8", "--device", "cpu", "--out", str(out),
+           "--curve", str(curve)]
+    root = Path(__file__).resolve().parents[1]
+    subprocess.run(cmd, check=True, cwd=root, capture_output=True)
+    rows, points = read(out), read(curve)
+    assert [r["arch"] for r in rows] == ["transformer", "mamba"]
+    for r in rows:  # the curve ends at the last step and its best point is the reported accuracy
+        mine = [p for p in points if p["arch"] == r["arch"]]
+        assert [int(p["step"]) for p in mine] == [10, 20] and int(r["steps"]) == 20
+        assert max(float(p["accuracy"]) for p in mine) == pytest.approx(float(r["accuracy"]))
+    # A session that stopped after mamba's curve was written but before its result row: the rerun
+    # trains mamba again and replaces its curve instead of appending a second copy.
+    out.write_text("".join(out.read_text().splitlines(keepends=True)[:2]))
+    subprocess.run(cmd, check=True, cwd=root, capture_output=True)
+    assert [r["arch"] for r in read(out)] == ["transformer", "mamba"]
+    assert read(curve) == points

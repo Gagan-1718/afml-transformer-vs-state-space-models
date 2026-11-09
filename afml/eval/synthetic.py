@@ -84,7 +84,8 @@ def accuracy(model, x, y, device, batch=128):
     return correct / total
 
 
-def train_task(model, sample, device, steps, batch, lr, eval_x, eval_y, log_every=500):
+def train_task(model, sample, device, steps, batch, lr, eval_x, eval_y, log_every=500, on_eval=None):
+    """Returns (best eval accuracy, last step). on_eval(step, loss, accuracy) is called at every evaluation."""
     opt = torch.optim.AdamW(param_groups(model, 0.1), lr=lr, betas=(0.9, 0.95))
     sched = torch.optim.lr_scheduler.LambdaLR(
         opt, lambda s: min(1.0, (s + 1) / (0.05 * steps)) * 0.5 * (1 + math.cos(math.pi * s / steps)))
@@ -101,10 +102,39 @@ def train_task(model, sample, device, steps, batch, lr, eval_x, eval_y, log_ever
         opt.step()
         sched.step()
         if step % log_every == 0 or step == steps:
-            best = max(best, accuracy(model, eval_x, eval_y, device))
+            acc = accuracy(model, eval_x, eval_y, device)
+            best = max(best, acc)
+            if on_eval is not None:
+                on_eval(step, loss.item(), acc)
             if best > 0.995:
                 break
     return best, step
+
+
+CURVE_FIELDS = ["task", "arch", "d_model", "seq_len", "num_kv_or_tokens", "lr", "seed", "step", "loss", "accuracy"]
+
+
+def _curve_writer(path, key):
+    """Appends one row per evaluation. Rows left by an interrupted earlier attempt at the same grid
+    point are dropped first, so a resumed run does not duplicate its curve."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    same = lambda r: all(str(r[f]) == str(v) for f, v in key.items())  # noqa: E731
+    if path.exists():
+        with open(path, newline="") as f:
+            keep = [r for r in csv.DictReader(f) if not same(r)]
+        with open(path, "w", newline="") as f:
+            w = csv.DictWriter(f, fieldnames=CURVE_FIELDS)
+            w.writeheader()
+            w.writerows(keep)
+
+    def write(step, loss, acc):
+        new = not path.exists()
+        with open(path, "a", newline="") as f:
+            w = csv.DictWriter(f, fieldnames=CURVE_FIELDS)
+            if new:
+                w.writeheader()
+            w.writerow({**key, "step": step, "loss": round(loss, 5), "accuracy": acc})
+    return write
 
 
 def main():
@@ -119,6 +149,8 @@ def main():
     ap.add_argument("--layers", type=int, default=2, help="Transformer layers (Mamba gets 2x)")
     ap.add_argument("--lrs", nargs="+", type=float, default=[1e-3, 3e-3])
     ap.add_argument("--steps", type=int, default=4000)
+    ap.add_argument("--eval-every", type=int, default=500)
+    ap.add_argument("--curve", default=None, help="optional CSV: eval accuracy at every evaluation step")
     ap.add_argument("--batch", type=int, default=64)
     ap.add_argument("--eval-n", type=int, default=1000)
     ap.add_argument("--seed", type=int, default=0)
@@ -153,8 +185,13 @@ def main():
             ex, ey = make_selective_copy(a.eval_n, ctx, k, 16, eg)
         torch.manual_seed(a.seed)
         model = make_model(arch, d_model, vocab, seq_len, a.layers).to(device)
+        on_eval = None
+        if a.curve:
+            key = {"task": a.task, "arch": arch, "d_model": d_model, "seq_len": seq_len, "num_kv_or_tokens": k,
+                   "lr": lr, "seed": a.seed}
+            on_eval = _curve_writer(Path(a.curve), key)
         t0 = time.time()
-        acc, steps = train_task(model, sample, device, a.steps, a.batch, lr, ex, ey)
+        acc, steps = train_task(model, sample, device, a.steps, a.batch, lr, ex, ey, a.eval_every, on_eval)
         row = {"task": a.task, "arch": arch, "d_model": d_model, "seq_len": seq_len, "num_kv_or_tokens": k,
                "lr": lr, "accuracy": acc, "steps": steps, "params": sum(p.numel() for p in model.parameters()),
                "seconds": round(time.time() - t0, 1), "seed": a.seed}
