@@ -16,7 +16,8 @@ Gagandeep N (PES1UG24AM367), Mallikarjuna Rao R V (PES1UG24AM155)
 TODO(results): write last, in 5 sentences: the question; the setup (parameter-matched models at
 ~47M parameters, 340M training tokens each, FineWeb-Edu); the main quality result
 (`results/figures/table_main.md`); the recall and long-context results (Figures 3 to 5); the
-efficiency result with the Mamba scan backend named (Figure 6).
+efficiency result with the Mamba scan backend named (Figure 6); the instruction fine-tuning result
+(`results/sft/test.csv`).
 
 ## 1. Introduction
 
@@ -45,6 +46,9 @@ inference efficiency, and what does selectivity contribute?
 4. Measures loss beyond the training length (1,024 tokens) on PG-19 books up to 16,384 tokens.
 5. Compares inference cost with cached decoding for both models: KV cache against recurrent state.
 6. Inspects what the selective step size does on real text.
+7. Instruction-tunes the seed-0 Transformer and Mamba on the same instruction data (Alpaca-cleaned),
+   and compares their answers before and after, so both small language models are also used the way
+   assistants are: to follow instructions.
 
 ## 2. Background
 
@@ -80,6 +84,13 @@ Zoology (Arora et al., 2023) found that most of the quality gap between attentio
 attention-free models comes from associative recall: retrieving a value seen earlier in the context
 when its key reappears. Attention can look the key up directly. A recurrent model must already have
 stored the pair in its fixed-size state.
+
+### 2.5 Instruction fine-tuning
+
+A pretrained language model only continues text. Instruction fine-tuning (Wei et al., 2022) trains it
+further on pairs of an instruction and a good response, so that given a new instruction it answers
+instead of continuing. The loss is usually computed on the response tokens only: the instruction is
+context, not something the model should learn to write.
 
 ## 3. Models
 
@@ -119,8 +130,8 @@ binary search so that non-embedding parameters are within 0.5% of the Transforme
 | S | 512 | Mamba | 24 | 968 | 38,461,760 | 46,850,368 | −0.22% |
 | S | 512 | Mamba-LTI | 24 | 1,032 | 38,626,880 | 47,015,488 | +0.20% |
 
-Source: `python scripts/make_configs.py`. TODO(results): confirm against
-`results/S/runs/*/summary.json`.
+Source: `python scripts/make_configs.py`. The trained Transformer and Mamba runs report the same counts
+in `results/S/runs/*/summary.json`. TODO(results): confirm Mamba-LTI once all runs are collected.
 
 ### 3.5 Scan implementation
 
@@ -154,14 +165,40 @@ TODO(results): state which backend each run used, from the `scan_backend` field 
 4. Fits a byte-level BPE tokenizer with 16,384 tokens on 100,000 training documents only.
 5. Separates documents with an end-of-document token.
 
-The build targets 2B training tokens and 10M tokens each for validation and test.
+| Split | Documents | Tokens |
+| --- | --- | --- |
+| Train | 1,809,687 | 2,000,000,330 |
+| Validation | 8,945 | 10,000,935 |
+| Test | 9,159 | 10,000,062 |
 
-TODO(results): actual token and document counts per split, duplicates dropped and the tokenizer hash,
-from `results/data/meta.json`.
+Deduplication dropped 12,502 documents. The tokenizer's SHA-256 is `c51b6e0f…efef2f7`, and the build
+took 3,800 s (`results/data/meta.json`). Each training run draws its 340M tokens as random 1,024-token
+windows from the 2B-token training split.
 
 **Long-context text.** PG-19 test books from the Parquet copy `emozilla/pg19`, keeping the first 50
-books that have at least 16,385 tokens under our tokenizer. TODO(results): book list from
+books that have at least 16,385 tokens under our tokenizer. The 50 titles are listed in
 `results/data/pg19_meta.json`.
+
+**Instruction data (E7).** Alpaca-cleaned (`yahma/alpaca-cleaned`, pinned revision
+`12567cabf869d7c92e573c7c783905fc160e9639`, licence CC BY 4.0), a cleaned version of the Stanford Alpaca
+instruction-response pairs (Taori et al., 2023), which were generated with an OpenAI model following the
+Self-Instruct method (Wang et al., 2023). Exact duplicates are dropped, and each pair is assigned to test
+(2%), validation (2%) or train from the hash of its text, as for the pretraining data. Each example is
+tokenized with the pretraining tokenizer in this format (the Input block only when the example has one):
+
+```text
+### Instruction:
+<instruction>
+
+### Input:
+<input>
+
+### Response:
+<response>[EOS]
+```
+
+Examples longer than 1,025 tokens are dropped. TODO(results): examples and tokens per split, and the
+number of duplicates and dropped examples, from `results/sft/data_meta.json`.
 
 ## 5. Training
 
@@ -173,9 +210,10 @@ books that have at least 16,385 tokens under our tokenizer. TODO(results): book 
 | Gradient clipping | 1.0 |
 | Context length | 1,024 tokens |
 | Tokens per optimizer step | 131,072 (micro-batch × gradient accumulation × 1,024) |
-| Training tokens | 340M (2,593 steps), about 7 per parameter, identical for every model |
+| Micro-batch × accumulation | Transformer 16 × 8, Mamba 8 × 16 (set automatically to fit the 15 GB T4) |
+| Training tokens | 339,869,696 (2,593 steps), about 7.2 per parameter, identical for every model |
 | Precision | fp16 with loss scaling on the T4 (no native bf16); the scan in fp32 |
-| Validation | 2M validation tokens every 150 steps; the best validation checkpoint is kept |
+| Validation | 2M validation tokens at step 0, every 300 steps and at the last step; the best validation checkpoint is kept. (The configuration asks for every 150 steps, but validation only runs on logging steps, which come every 20, so in practice it ran every 300.) |
 | Seeds | Transformer and Mamba: 0, 1, 2. Mamba-LTI: 0, 1 |
 
 If a micro-batch does not fit in GPU memory, the trainer halves it and doubles gradient
@@ -185,7 +223,13 @@ accumulation, so the tokens per step never change.
 A GPU smoke test measured the training speed of both models on the free Kaggle T4, which made a full
 run about 25 hours. The budget was therefore set so the slower model finishes within one 11-hour free
 session, and the step size was reduced so the shorter runs still get about 2,600 optimizer updates.
-TODO(results): cite the measured tokens per second from `results/smoke/smoke_report.md`.
+
+In the smoke test (`results/smoke/smoke_report.md`, fp16, one T4 per run), the Transformer trained at
+10,370 tokens/s and Mamba with the official kernel (`cuda`) at 10,815 tokens/s. Mamba with our
+pure-PyTorch `chunked` scan reached only 380 tokens/s, about 28 times slower than the kernel. Over the
+full runs the Transformer turned out much faster than the short smoke runs suggested: seed 0 averaged
+23,221 tokens/s (4.1 h) against 11,198 tokens/s for Mamba with the `cuda` backend (8.4 h)
+(`results/S/runs/S_*_s0/summary.json`).
 
 **Learning rate.** The Transformer and Mamba are each trained for 30M tokens (228 steps), with the same
 step size and the same 51 warmup steps as the main runs, at learning rates 3e-4, 6e-4, 1.2e-3 and 2.4e-3,
@@ -203,12 +247,43 @@ grid edge was reached. Because the main runs warm up for 51 steps, that sweep wa
 rates; it was discarded and rerun with the main-run warmup. Its log is kept in
 `results/S/sweep_v1_failed_log.txt`.
 
-TODO(results): the sweep table and chosen rates from `results/S/lr_sweep.csv` and
-`results/S/best_lr.json`. Note whether a best rate sits at the edge of the grid.
+*Validation loss after 30M tokens (`results/S/lr_sweep.csv`). No run diverged. Bold: the rate used.*
+
+| Learning rate | Transformer | Mamba |
+| --- | --- | --- |
+| 1.5e-4 | 6.022 | - |
+| 3e-4 | 5.644 | 5.602 |
+| 6e-4 | **5.413** | 5.201 |
+| 1.2e-3 | 5.619 | **4.924** |
+| 2.4e-3 | 5.744 | 4.923 |
+
+The Transformer's best rate, 6e-4, lies inside the grid. For Mamba, 2.4e-3 gave the lowest loss, but
+only 0.0008 below 1.2e-3, so the tie rule chose 1.2e-3 (`results/S/best_lr.json`). Because Mamba's
+lowest loss sits at the top edge of the grid, a rate above 2.4e-3 might have done slightly better in
+these short runs; we did not test one. Mamba-LTI uses 1.2e-3 without a sweep of its own.
 
 **Hardware.** Free Kaggle notebooks with two NVIDIA T4 GPUs (16 GB each), running two independent
 runs at a time. Sessions end after 12 hours, so training saves a full checkpoint (model, optimizer,
 loss scaler, random states) before the limit and resumes in the next session.
+
+**Instruction fine-tuning (E7).** The seed-0 Transformer and Mamba are fine-tuned from their best
+pretraining checkpoint with identical settings (`afml/sft.py`):
+
+| Setting | Value |
+| --- | --- |
+| Starting point | `best.pt` of `S_transformer_s0` and `S_mamba_s0`; every weight is trained (no frozen layers, no adapters) |
+| Loss | cross-entropy on the response tokens and the closing [EOS] only; the prompt is context |
+| Optimizer | AdamW, β = (0.9, 0.95), no weight decay |
+| Schedule | linear warmup over 3% of steps, cosine decay to 10% of the peak |
+| Batch | 64 examples per step (micro-batch 8 × accumulation 8), right-padded, grouped by length |
+| Epochs | 2 |
+| Gradient clipping | 1.0 |
+| Precision | fp16 with loss scaling; the scan in fp32 |
+| Learning rate | 3e-5, 1e-4 and 3e-4 for each model; chosen on validation response loss with the same tie rule as pretraining (within 0.01 → the lowest rate) |
+| Validation | every validation example, at step 0, every 100 steps and at the end; the best checkpoint is kept |
+
+TODO(results): the chosen rate, steps and training time per model, and the scan backend, from
+`results/sft/lr_sweep.csv` and `results/sft/runs/*/summary.json`.
 
 ## 6. Evaluation protocol
 
@@ -222,8 +297,8 @@ test split.
 | E3 | Associative recall | MQAR: widths 64, 128, 256; lengths 64 to 512; key-value pairs = 0.25·L/2; 2 Transformer layers vs 4 Mamba layers; 4,000 steps, batch 64; best of learning rates 1e-3 and 3e-3; accuracy on 1,000 held-out sequences. Natural text: a test token is a *recall hit* if the pair (previous token, token) already appeared earlier in the same window |
 | E4 | Length extrapolation | First 16,384 tokens of each PG-19 book in one forward pass; loss averaged in position bins that double in size from 128 tokens; seed-0 models. RoPE is used past 1,024 without scaling |
 | E5 | Inference efficiency | Randomly initialised models with the trained ~47M (S) configurations (speed does not depend on the weights); prefill latency, peak memory, throughput and per-token decode latency for 512 to 32,768 tokens at batch 1 and 8; CUDA-event timing after 3 warm-up runs, median of 10; one row per Mamba backend (official kernel first, then our chunked scan). Missing points are out of memory, or skipped: once one prefill takes over 20 s, longer lengths at that batch size are not timed |
-| E6 | Mechanism | Δ per token on validation text, memory horizon 1/(Δ·\|A\|), and Transformer attention maps, for the seed-0 pair |
-| E7 | Hybrid (optional) | Not run in this version |
+| E6 | Mechanism | Δ per token on the first 256 tokens of the test split, memory horizon 1/(Δ·\|A\|), and Transformer attention maps on the same text, for the seed-0 pair (nothing is chosen with this text) |
+| E7 | Instruction following | For each model before and after fine-tuning: loss on the response tokens of every test example (prompt tokens not scored); greedy answers (at most 128 new tokens) to the first 100 test prompts, scored by ROUGE-L F1 (Lin, 2004) against the reference answer and by the share of answers that end with [EOS]; answers to 8 hand-written prompts, shown as examples. One seed. The test examples are scored once, after the learning rate is chosen on validation |
 
 ## 7. Results
 
@@ -293,24 +368,34 @@ Transformer run out of memory? How does decode latency scale for each model?
 TODO(results): from `results/analysis/S/delta_stats.json`. Which tokens get large Δ? How does the spread of memory horizons compare with the
 training length?
 
+### 7.7 Instruction fine-tuning (E7)
+
+TODO(results): Table 2 from `results/sft/test.csv`: test response loss, ROUGE-L and [EOS] rate for each
+model before and after fine-tuning. One paragraph: does fine-tuning lower the response loss for both
+models, and is the gap between them after fine-tuning similar to the pretraining gap in Table 1? Then 2
+or 3 example answers per model from `results/sft/samples.md`, copied exactly. Say plainly where the
+answers are wrong or repetitive: these are 47M-parameter models.
+
 ## 8. Discussion
 
 TODO(results). Answer the research question in one paragraph, then cover:
 
 - whether the recall results (Figures 3 and 4) explain the quality gap in Table 1;
 - what the LTI ablation shows about selectivity;
-- the efficiency trade-off, separating architecture from implementation (scan backend).
+- the efficiency trade-off, separating architecture from implementation (scan backend);
+- whether instruction fine-tuning changes the comparison (E7).
 
 ## 9. Limitations
 
 - **Scale and budget.** The models have 47M parameters and see 340M tokens, about 7 per parameter,
   below the compute-optimal ~20. Published Mamba results start at 130M parameters and much larger
   token budgets, so our trends may not hold at larger scale or with longer training. A ~98M-parameter
-  pair was configured but not trained: on a free T4 each run would take several days.
-  TODO(results): cite the estimate from `results/smoke/smoke_report.md`.
+  pair was configured but not trained: the smoke test estimated about 104 to 105 hours per run at its
+  planned 1.95B tokens (`results/smoke/smoke_report.md`).
 - **Seeds.** The Transformer and Mamba have 3 seeds each and Mamba-LTI has 2. Differences smaller than
   the seed spread should not be called significant.
 - **Learning rate.** The rate is tuned with 30M-token runs, shorter than the 340M-token main runs.
+  Mamba's lowest sweep loss was at the top of the grid, and Mamba-LTI was not tuned separately.
 - **One corpus and one tokenizer.** Perplexities compare only models that share this tokenizer and
   test set.
 - **Free hardware.** The T4 has no native bf16, so training uses fp16. If `mamba-ssm` does not
@@ -321,6 +406,10 @@ TODO(results). Answer the research question in one paragraph, then cover:
   PG-19 books differ from the web training text, which affects both models.
 - **Ablation scope.** Mamba-LTI is trained only at scale S. The synthetic tasks use small models
   trained from scratch, separate from the language models.
+- **Instruction fine-tuning.** One seed, only the seed-0 models, one dataset whose answers were written
+  by another model. ROUGE-L measures word overlap with one reference answer, not whether an answer is
+  correct, and answers are cut at 128 new tokens. Models of this size are expected to follow the answer
+  format far better than they get facts right.
 
 ## 10. Changes since Review 1
 
@@ -336,6 +425,8 @@ that the model was far too small and that the comparison was never made. This ve
    logging. Weight decay no longer applies to `A_log` and `D`.
 5. **Fair evaluation.** Added: a held-out test split, multiple seeds, and cached decoding for both
    models.
+6. **Instruction fine-tuning.** Both models are instruction-tuned on the same data and compared
+   before and after, as the default project track asks.
 
 ## 11. Reproducibility
 
@@ -344,6 +435,7 @@ that the model was far too small and that the comparison was never made. This ve
   commit hash.
 - **Runner:** `notebooks/run_study.ipynb` runs every stage on a free Kaggle or Colab GPU.
 - **Data:** pinned FineWeb-Edu revision; tokenizer hash and split sizes in `results/data/meta.json`.
+  Pinned Alpaca-cleaned revision; its split sizes in `results/sft/data_meta.json`.
 - **Tests:** `python -m pytest -q`.
 
 ## References
@@ -358,3 +450,7 @@ that the model was far too small and that the comparison was never made. This ve
 8. Su, J., et al. (2021). RoFormer: Enhanced Transformer with Rotary Position Embedding. arXiv:2104.09864.
 9. Shazeer, N. (2020). GLU Variants Improve Transformer. arXiv:2002.05202.
 10. Zhang, B., & Sennrich, R. (2019). Root Mean Square Layer Normalization. arXiv:1910.07467.
+11. Taori, R., et al. (2023). Stanford Alpaca: An Instruction-following LLaMA Model. GitHub repository, <https://github.com/tatsu-lab/stanford_alpaca>.
+12. Wang, Y., et al. (2023). Self-Instruct: Aligning Language Models with Self-Generated Instructions. ACL 2023. arXiv:2212.10560.
+13. Wei, J., et al. (2022). Finetuned Language Models Are Zero-Shot Learners. ICLR 2022. arXiv:2109.01652.
+14. Lin, C.-Y. (2004). ROUGE: A Package for Automatic Evaluation of Summaries. Text Summarization Branches Out, ACL Workshop.

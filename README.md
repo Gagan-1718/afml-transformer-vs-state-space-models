@@ -16,6 +16,7 @@ win or lose: memory recall, long context, inference speed and memory?
 | E4 | Length extrapolation: per-position loss on PG-19 books up to 16K tokens (trained at 1K) | `afml/eval/long_context.py` |
 | E5 | Inference efficiency: prefill/decode latency, peak memory vs length, cached decoding | `afml/eval/bench.py` |
 | E6 | Mechanism: Mamba's step size Δ per token, memory horizon, attention maps | `afml/eval/analysis.py` |
+| E7 | Instruction fine-tuning of the seed-0 Transformer and Mamba on Alpaca-cleaned (~52k pairs, loss on responses only): response loss, ROUGE-L and sample answers before vs after | `afml/sft.py` |
 
 Model sizes (vocabulary 16,384; Mamba uses 2 layers per Transformer layer, `d_inner` matched by
 `scripts/make_configs.py`):
@@ -44,6 +45,7 @@ afml/
   data/loader.py         memory-mapped batches
   train.py               trainer: warmup + cosine, AdamW, mixed precision, grad accumulation, resume, auto batch size
   eval/                  perplexity, long_context, synthetic, bench, analysis
+  sft.py                 instruction fine-tuning: Alpaca-cleaned prep, response-only loss, LR choice on val, test
 configs/                 data.json and parameter-matched run configs
 scripts/                 make_configs, sweep_lr, smoke_report, collect_results, make_figures
 notebooks/run_study.ipynb   runs everything on a free Kaggle or Colab GPU
@@ -81,8 +83,9 @@ cell, then run. Every stage is resumable.
 4. `S` — the main runs, about 9.5 h each, split over team accounts with `ONLY_RUNS`.
 5. `synthetic` — MQAR and selective-copying grids.
 6. `eval` — test perplexity, PG-19, efficiency, Δ analysis.
-7. `M` — 98M models; configured but not in the current plan (~100 h per run on a T4).
-8. `figures` — all figures, `table_main.md`, and `results.zip`.
+7. `sft` — instruction fine-tuning of `S_transformer_s0` and `S_mamba_s0` (3 learning rates each, chosen on val).
+8. `M` — 98M models; configured but not in the current plan (~100 h per run on a T4).
+9. `figures` — all figures, `table_main.md`, and `results.zip`.
 
 On Kaggle: run each stage with *Save Version → Save & Run All* (Internet on, GPU **T4 x2**). Next
 session, *Add Input* → the data version's output **and** the latest version's output, so data,

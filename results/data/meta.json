@@ -1,0 +1,32 @@
+{
+  "dataset": "HuggingFaceFW/fineweb-edu",
+  "subset": "sample-10BT",
+  "revision": "87f09149ef4734204d70ed1d046ddc9ca3f2b8f9",
+  "shuffle_seed": 1234,
+  "shuffle_buffer": 10000,
+  "split_rule": "int(sha256(text)[:8], 16) % 1000: <10 test, <20 val, else train",
+  "dedup": "exact SHA-256 of stripped text",
+  "duplicates_dropped": 12502,
+  "tokenizer": "byte-level BPE fitted on training documents only",
+  "tokenizer_docs": 100000,
+  "vocab_size": 16384,
+  "eos_id": 1,
+  "tokenizer_sha256": "c51b6e0f1fce5db6858e0bb40b9ff3532590d25acebc6f19106e0a790efef2f7",
+  "dtype": "uint16",
+  "documents_separated_by": "[EOS]",
+  "splits": {
+    "train": {
+      "tokens": 2000000330,
+      "documents": 1809687
+    },
+    "val": {
+      "tokens": 10000935,
+      "documents": 8945
+    },
+    "test": {
+      "tokens": 10000062,
+      "documents": 9159
+    }
+  },
+  "build_seconds": 3800.3
+}

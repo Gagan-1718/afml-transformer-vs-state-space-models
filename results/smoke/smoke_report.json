@@ -1,0 +1,216 @@
+{
+  "measured": [
+    {
+      "run": "smoke_S_transformer",
+      "model": "transformer",
+      "scan_backend": null,
+      "device": "Tesla T4",
+      "precision": "torch.float16",
+      "tokens_per_sec": 10370.208026053082,
+      "micro_batch": 16,
+      "grad_accum": 8,
+      "peak_memory_gb": 9.48319959640503,
+      "flops_per_token": 319368192.0,
+      "eval_s_per_token": 1.1252857802901417e-05,
+      "vocab_size": 16384
+    },
+    {
+      "run": "smoke_S_mamba_cuda",
+      "model": "mamba",
+      "scan_backend": "cuda",
+      "device": "Tesla T4",
+      "precision": "torch.float16",
+      "tokens_per_sec": 10814.764889301001,
+      "micro_batch": 8,
+      "grad_accum": 16,
+      "peak_memory_gb": 8.27633810043335,
+      "flops_per_token": 291138432.0,
+      "eval_s_per_token": 2.5767061742953956e-05,
+      "vocab_size": 16384
+    },
+    {
+      "run": "smoke_S_mamba_chunked",
+      "model": "mamba",
+      "scan_backend": "chunked",
+      "device": "Tesla T4",
+      "precision": "torch.float16",
+      "tokens_per_sec": 380.37871287869257,
+      "micro_batch": 4,
+      "grad_accum": 4,
+      "peak_memory_gb": 10.157837390899658,
+      "flops_per_token": 291138432.0,
+      "eval_s_per_token": 0.0006207024853210896,
+      "vocab_size": 16384
+    }
+  ],
+  "estimates": [
+    {
+      "target": "S_transformer",
+      "scan_backend": null,
+      "from_run": "smoke_S_transformer",
+      "how": "measured",
+      "tokens_per_sec": 10370.208026053082,
+      "train_hours": 25.178965595976617,
+      "eval_hours": 0.08127063968762134,
+      "hours": 25.260236235664237,
+      "sweep_run_hours": 2.6973681242789436
+    },
+    {
+      "target": "S_mamba",
+      "scan_backend": "cuda",
+      "from_run": "smoke_S_mamba_cuda",
+      "how": "measured",
+      "tokens_per_sec": 10814.764889301001,
+      "train_hours": 24.143947074561666,
+      "eval_hours": 0.18609544592133412,
+      "hours": 24.330042520483,
+      "sweep_run_hours": 2.611450110837015
+    },
+    {
+      "target": "S_mamba",
+      "scan_backend": "chunked",
+      "from_run": "smoke_S_mamba_chunked",
+      "how": "measured",
+      "tokens_per_sec": 380.37871287869257,
+      "train_hours": 686.45037766449,
+      "eval_hours": 4.482851282874536,
+      "hours": 690.9332289473646,
+      "sweep_run_hours": 74.06114006395606
+    },
+    {
+      "target": "S_mamba_lti",
+      "scan_backend": "cuda",
+      "from_run": "smoke_S_mamba_cuda",
+      "how": "scaled by FLOPs/token",
+      "tokens_per_sec": 10753.661718017904,
+      "train_hours": 24.281134924824347,
+      "eval_hours": 0.18715285522109698,
+      "hours": 24.468287780045443,
+      "sweep_run_hours": 2.6262885805233345
+    },
+    {
+      "target": "S_mamba_lti",
+      "scan_backend": "chunked",
+      "from_run": "smoke_S_mamba_chunked",
+      "how": "scaled by FLOPs/token",
+      "tokens_per_sec": 378.22958195597926,
+      "train_hours": 690.350843952499,
+      "eval_hours": 4.50832320462145,
+      "hours": 694.8591671571204,
+      "sweep_run_hours": 74.48196142187243
+    },
+    {
+      "target": "M_transformer",
+      "scan_backend": null,
+      "from_run": "smoke_S_transformer",
+      "how": "scaled by FLOPs/token",
+      "tokens_per_sec": 5160.001611022189,
+      "train_hours": 104.97412743236785,
+      "eval_hours": 0.32666402203083145,
+      "hours": 105.30079145439868,
+      "sweep_run_hours": 5.420980588817294
+    },
+    {
+      "target": "M_mamba",
+      "scan_backend": "cuda",
+      "from_run": "smoke_S_mamba_cuda",
+      "how": "scaled by FLOPs/token",
+      "tokens_per_sec": 5251.057158566706,
+      "train_hours": 103.15383175423604,
+      "eval_hours": 0.7665422157233563,
+      "hours": 103.9203739699594,
+      "sweep_run_hours": 5.378387268698133
+    },
+    {
+      "target": "M_mamba",
+      "scan_backend": "chunked",
+      "from_run": "smoke_S_mamba_chunked",
+      "how": "scaled by FLOPs/token",
+      "tokens_per_sec": 184.69105742687552,
+      "train_hours": 2932.825628989254,
+      "eval_hours": 18.46522755094996,
+      "hours": 2951.2908565402035,
+      "sweep_run_hours": 152.53191748609703
+    },
+    {
+      "target": "M_mamba_lti",
+      "scan_backend": "cuda",
+      "from_run": "smoke_S_mamba_cuda",
+      "how": "scaled by FLOPs/token",
+      "tokens_per_sec": 5241.450276738587,
+      "train_hours": 103.34289901987023,
+      "eval_hours": 0.7679471857400331,
+      "hours": 104.11084620561026,
+      "sweep_run_hours": 5.388245137835145
+    },
+    {
+      "target": "M_mamba_lti",
+      "scan_backend": "chunked",
+      "from_run": "smoke_S_mamba_chunked",
+      "how": "scaled by FLOPs/token",
+      "tokens_per_sec": 184.35316257830854,
+      "train_hours": 2938.201108628014,
+      "eval_hours": 18.499071859232078,
+      "hours": 2956.700180487246,
+      "sweep_run_hours": 152.81148822109162
+    }
+  ],
+  "stages": [
+    {
+      "stage": "sweep (S, 2 models x 4 LRs)",
+      "mamba_backend": "chunked",
+      "runs": 8,
+      "gpu_hours": 307.03403275294,
+      "longest_run_hours": 74.06114006395606,
+      "wall_hours": 153.51701637647,
+      "kaggle_sessions": 14
+    },
+    {
+      "stage": "S (3 models x 3 seeds)",
+      "mamba_backend": "chunked",
+      "runs": 9,
+      "gpu_hours": 4233.157897020447,
+      "longest_run_hours": 694.8591671571204,
+      "wall_hours": 2116.5789485102237,
+      "kaggle_sessions": 193
+    },
+    {
+      "stage": "M (transformer + mamba, 1 seed)",
+      "mamba_backend": "chunked",
+      "runs": 2,
+      "gpu_hours": 3056.591647994602,
+      "longest_run_hours": 2951.2908565402035,
+      "wall_hours": 2951.2908565402035,
+      "kaggle_sessions": 269
+    },
+    {
+      "stage": "sweep (S, 2 models x 4 LRs)",
+      "mamba_backend": "cuda",
+      "runs": 8,
+      "gpu_hours": 21.235272940463837,
+      "longest_run_hours": 2.6973681242789436,
+      "wall_hours": 10.617636470231918,
+      "kaggle_sessions": 1
+    },
+    {
+      "stage": "S (3 models x 3 seeds)",
+      "mamba_backend": "cuda",
+      "runs": 9,
+      "gpu_hours": 222.17569960857804,
+      "longest_run_hours": 25.260236235664237,
+      "wall_hours": 111.08784980428902,
+      "kaggle_sessions": 11
+    },
+    {
+      "stage": "M (transformer + mamba, 1 seed)",
+      "mamba_backend": "cuda",
+      "runs": 2,
+      "gpu_hours": 209.22116542435808,
+      "longest_run_hours": 105.30079145439868,
+      "wall_hours": 105.30079145439868,
+      "kaggle_sessions": 10
+    }
+  ],
+  "gpus": 2,
+  "session_hours": 11.0
+}

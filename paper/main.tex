@@ -1,0 +1,525 @@
+% IEEE conference paper for the AFML course project.
+% Overleaf: upload this folder (main.tex and the figures/ folder) and compile with pdfLaTeX.
+% Red [TODO: ...] marks are places that still need a number from results/. Nothing here is estimated.
+\documentclass[conference]{IEEEtran}
+\usepackage{amsmath,amssymb}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{xcolor}
+\usepackage{url}
+\usepackage[hidelinks]{hyperref}
+
+\newcommand{\todo}[1]{\textcolor{red}{[TODO: #1]}}
+% Includes a figure if the file exists, otherwise shows a red placeholder box.
+\newcommand{\figfile}[2][width=\linewidth]{%
+  \IfFileExists{#2}{\includegraphics[#1]{#2}}{%
+    \fbox{\parbox{0.92\linewidth}{\centering\vspace{1.5em}%
+      \textcolor{red}{figure pending: \texttt{\detokenize{#2}}}\vspace{1.5em}}}}}
+
+\begin{document}
+
+\title{Swapping Attention for Selective State Spaces:\\
+Training and Evaluating a Mamba-Style Small Language Model}
+
+\author{\IEEEauthorblockN{Krishna G Pai, Dikshith Varma M N, Gagandeep N, Mallikarjuna Rao R V}
+\IEEEauthorblockA{Department of Computer Science and Engineering (AI \& ML), PES University, Bengaluru, India\\
+PES1UG24AM372, PES1UG24AM363, PES1UG24AM367, PES1UG24AM155}}
+
+\maketitle
+
+\begin{abstract}
+State-space models (SSMs) such as Mamba replace attention with a recurrence whose state has a fixed
+size, so the cost of generating a token does not grow with the context. We compare a Transformer and a
+Mamba-style selective SSM as small language models under matched conditions: about 47M parameters
+each, the same FineWeb-Edu data and tokenizer, and the same budget of 340M training tokens, with three
+seeds per architecture. A third model, Mamba-LTI, removes the input-dependent (selective) part of Mamba
+and nothing else. We measure test loss, associative recall (the synthetic MQAR task, and natural-text
+loss split into recall-hit and other tokens), loss beyond the 1,024-token training length on PG-19
+books, and inference latency and memory with cached decoding. Finally, we instruction-tune both models
+on the same instruction data and compare their answers before and after.
+\todo{main quality result with numbers from Table V.}
+\todo{recall and long-context result.}
+\todo{efficiency result, naming the scan backend.}
+\todo{instruction fine-tuning result from results/sft/test.csv.}
+All training ran on free Kaggle T4 GPUs; the code, configurations and per-run logs are public.
+\end{abstract}
+
+\begin{IEEEkeywords}
+state-space models, Mamba, Transformer, small language models, selectivity, associative recall,
+instruction tuning
+\end{IEEEkeywords}
+
+% ---------------------------------------------------------------------------------------------------
+\section{Introduction}
+
+A Transformer~\cite{vaswani2017attention} reads its context through attention: each new token is
+compared with every earlier token. Processing a prompt of $L$ tokens therefore costs $O(L^2)$ per
+layer, and the key-value (KV) cache that generation needs grows linearly with $L$. State-space models
+process the sequence with a linear recurrence instead. Their state has a fixed size, so each generated
+token costs the same time and memory however long the context is.
+
+Early SSMs such as S4~\cite{gu2022s4} are \emph{linear time-invariant} (LTI): every token is processed
+with the same dynamics. This allows fast training as a convolution, but the model cannot decide from
+the content what to keep and what to ignore. Mamba~\cite{gu2023mamba} makes the recurrence
+\emph{selective}: its step size and its input and output maps are computed from the current token. Its
+authors report quality equal to or better than Transformers of the same size, in experiments that
+start at 130M parameters and use far larger training budgets than a student project can afford.
+Zoology~\cite{arora2023zoology} found that much of the remaining gap between attention and
+attention-free models comes from associative recall: retrieving a value seen earlier in the context
+when its key appears again.
+
+\textbf{Research question.} At the same parameter count, the same data and the same token budget, how
+does a Mamba-style small language model compare with a Transformer in quality and in inference
+efficiency, and what does selectivity contribute?
+
+\textbf{Contributions.}
+\begin{enumerate}
+  \item A matched comparison of a Transformer and a Mamba model with about 47M parameters each, three
+        seeds per architecture, 340M training tokens of FineWeb-Edu, trained entirely on free T4 GPUs.
+  \item A selectivity ablation (Mamba-LTI) with the same size, data and training.
+  \item A recall analysis on synthetic data (MQAR) and on natural text (recall-hit tokens).
+  \item Loss beyond the training length, up to 16,384 tokens of PG-19 books.
+  \item Inference latency and memory with a KV cache against a recurrent state, reported separately for
+        the official Mamba kernel and for our pure-PyTorch scan.
+  \item Instruction fine-tuning of both models with identical data and settings, with response loss and
+        answer quality before and after.
+  \item Public code, including a memory-bounded chunked selective scan in pure PyTorch.
+\end{enumerate}
+
+% ---------------------------------------------------------------------------------------------------
+\section{Background}
+
+\subsection{Attention}
+Causal self-attention computes $\mathrm{softmax}(QK^\top/\sqrt{d})\,V$ with future positions masked.
+Prefill over $L$ tokens costs $O(L^2 d)$ per layer. Decoding one token with a KV cache costs $O(Ld)$
+per layer and stores $2Ld$ values per layer.
+
+\subsection{State-space layers}
+A diagonal SSM channel keeps a state $h_t$ of size $N$ (here $N = 16$) and updates it per token:
+\begin{align}
+  h_t &= \exp(\Delta A) \odot h_{t-1} + \Delta B\, u_t, \label{eq:ssm}\\
+  y_t &= C\, h_t + D\, u_t .
+\end{align}
+$A$ is diagonal and negative, so $\exp(\Delta A)$ lies between 0 and 1 and acts as a forget factor. In
+an LTI model, $\Delta$, $B$ and $C$ are the same at every position.
+
+\subsection{Selectivity}
+Mamba computes $\Delta_t = \mathrm{softplus}(W_\Delta x_t + b)$, $B_t = W_B x_t$ and $C_t = W_C x_t$ from
+the current token. A large $\Delta_t$ drives $\exp(\Delta_t A)$ towards 0, so the state is overwritten
+with the current token. A small $\Delta_t$ keeps the state and ignores the token. A channel's memory
+horizon is therefore about $\tau = 1/(\Delta_t |A|)$ tokens. Because the dynamics change from token to
+token, training cannot use a convolution and needs a scan over the sequence. Mamba-2~\cite{dao2024mamba2}
+restricts $A$ further so that the scan becomes matrix multiplications; we use the Mamba-1 formulation.
+
+\subsection{Associative recall}
+In multi-query associative recall (MQAR)~\cite{arora2023zoology}, a sequence lists key-value pairs and
+later repeats some keys; the model must output the matching values. Attention can look a key up
+directly. A recurrent model must already have stored the pair in its fixed-size state.
+
+\subsection{Instruction fine-tuning}
+A pretrained language model only continues text. Instruction fine-tuning~\cite{wei2022flan} trains it
+further on pairs of an instruction and a good response, so that it answers a new instruction instead of
+continuing it. The loss is usually taken on the response tokens only: the instruction is context, not
+text the model should learn to produce.
+
+% ---------------------------------------------------------------------------------------------------
+\section{Models}
+
+\subsection{Transformer}
+A pre-norm decoder with RMSNorm~\cite{zhang2019rmsnorm}, rotary position embeddings
+(RoPE, base 10,000)~\cite{su2021roformer}, a SwiGLU MLP~\cite{shazeer2020glu} with hidden size $8/3$ of
+the width rounded up to a multiple of 64, PyTorch scaled-dot-product attention with 8 heads of size 64,
+and tied input and output embeddings. Generation uses a KV cache.
+
+\subsection{Mamba}
+Each layer is RMSNorm, a Mamba-1 block and a residual connection. The block projects its input to a
+signal $x$ and a gate $z$ of width $d_\text{inner}$, applies a causal depthwise convolution of width 4
+and SiLU to $x$, runs the selective SSM (state size 16, $\Delta$ projection of rank 32), gates the
+result with $\mathrm{SiLU}(z)$ and projects back to the model width. $A$ is initialised to
+$-1,\dots,-16$ (S4D-real) and the $\Delta$ bias so that $\mathrm{softplus}$ of it lies between 0.001
+and 0.1. A Mamba layer has no MLP, so the Mamba models have two layers for each Transformer layer, as
+in~\cite{gu2023mamba}. Generation uses the recurrent state (convolution state and SSM state), whose
+size does not depend on the context length.
+
+\subsection{Mamba-LTI ablation}
+$\Delta$, $B$ and $C$ are replaced by learned constants that do not depend on the input. Everything
+else is identical, so the ablation removes selectivity and nothing more. Without the three input
+projections the block has fewer parameters, so its $d_\text{inner}$ is matched separately.
+
+\subsection{Parameter matching}
+All models share the width (512), the vocabulary (16,384) and the tied embedding. The Mamba
+$d_\text{inner}$ is found by binary search so that non-embedding parameters are within 0.5\% of the
+Transformer's (Table~\ref{tab:params}). \todo{confirm the Mamba-LTI counts from the collected runs.}
+
+\begin{table}[t]
+\centering
+\caption{Model sizes (scale S, width 512). Counts from the trained runs' summaries.}
+\label{tab:params}
+\begin{tabular}{lrrrr}
+\toprule
+Model & Layers & $d_\text{inner}$ & Non-embedding & Total \\
+\midrule
+Transformer & 12 & -- & 38,547,968 & 46,936,576 \\
+Mamba & 24 & 968 & 38,461,760 & 46,850,368 \\
+Mamba-LTI & 24 & 1,032 & 38,626,880 & 47,015,488 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Scan implementations}
+We implement four interchangeable scans: a step-by-step reference, a Hillis--Steele parallel scan over
+the whole sequence, a chunked scan, and the fused CUDA kernel of the official \texttt{mamba-ssm}
+package. The parallel scan keeps tensors of shape (batch, length, $d_\text{inner}$, $N$) for
+backpropagation and ran out of memory for a full-size model at 1,024 tokens in our tests. The chunked
+scan runs the parallel scan inside chunks of 64 tokens with activation checkpointing and carries the
+state between chunks, so it stores only the block inputs and one state per chunk. Unit tests check that
+every backend gives the same outputs and gradients as the reference. The scan always runs in fp32.
+Every speed number below names the backend (\texttt{cuda} or \texttt{chunked}), because a slow
+pure-PyTorch scan is a property of our implementation, not of the architecture.
+\todo{state which backend each main run used, from the collected summaries.}
+
+% ---------------------------------------------------------------------------------------------------
+\section{Data and Training}
+
+\subsection{Data}
+The training text is FineWeb-Edu~\cite{penedo2024fineweb}, subset \texttt{sample-10BT}, pinned to one
+revision of the dataset repository. We stream the subset through a 10,000-document shuffle buffer
+(seed 1234), drop exact duplicates by the SHA-256 hash of the stripped text (12,502 documents), and
+assign each document to the test, validation or training split from its hash (1\%, 1\% and 98\%), so
+the split does not depend on order. A byte-level BPE tokenizer with 16,384 tokens is fitted on 100,000
+training documents only, and documents are separated by an end-of-document token. The build stops at
+2B training tokens (Table~\ref{tab:data}). Each run draws its training tokens as random 1,024-token
+windows from the training split.
+
+For long-context evaluation we use the first 50 PG-19~\cite{rae2020compressive} test books that have
+at least 16,385 tokens under our tokenizer, read from the Parquet copy \texttt{emozilla/pg19} of the
+official release.
+
+For instruction fine-tuning we use Alpaca-cleaned (\texttt{yahma/alpaca-cleaned}, one pinned revision,
+CC BY 4.0), a cleaned version of the Stanford Alpaca pairs~\cite{taori2023alpaca}, which were generated
+with an OpenAI model following Self-Instruct~\cite{wang2023selfinstruct}. We drop exact duplicates and
+split the pairs by the hash of their text into test (2\%), validation (2\%) and training. Each example
+is written as \texttt{\#\#\# Instruction:}, the instruction, an optional \texttt{\#\#\# Input:} block,
+\texttt{\#\#\# Response:}, the response and the end-of-document token, and is tokenized with the
+pretraining tokenizer; examples longer than 1,025 tokens are dropped.
+\todo{split sizes from results/sft/data\_meta.json.}
+
+\begin{table}[t]
+\centering
+\caption{FineWeb-Edu splits after deduplication.}
+\label{tab:data}
+\begin{tabular}{lrr}
+\toprule
+Split & Documents & Tokens \\
+\midrule
+Train & 1,809,687 & 2,000,000,330 \\
+Validation & 8,945 & 10,000,935 \\
+Test & 9,159 & 10,000,062 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Training setup}
+Table~\ref{tab:train} lists the settings, which are identical for all models except the learning rate
+and the micro-batch split. If a micro-batch does not fit in GPU memory, the trainer halves it and
+doubles gradient accumulation, so the tokens per step never change.
+
+\begin{table}[t]
+\centering
+\caption{Training settings.}
+\label{tab:train}
+\begin{tabular}{@{}p{0.34\linewidth}p{0.58\linewidth}@{}}
+\toprule
+Optimizer & AdamW~\cite{loshchilov2019adamw}, $\beta = (0.9, 0.95)$, weight decay 0.1 on weight matrices only (none on norms, biases, embeddings, $A$, $D$ or the $\Delta$ bias) \\
+Schedule & linear warmup for 51 steps (2\%), cosine decay to 10\% of the peak \\
+Gradient clipping & 1.0 \\
+Context & 1,024 tokens \\
+Tokens per step & 131,072 (Transformer $16 \times 8$, Mamba $8 \times 16$ micro-batch $\times$ accumulation) \\
+Training tokens & 339,869,696 (2,593 steps), about 7.2 per parameter \\
+Precision & fp16 with loss scaling (the T4 has no native bf16); scan in fp32 \\
+Validation & 2M tokens at step 0, every 300 steps and at the last step; the best checkpoint is kept \\
+Seeds & Transformer and Mamba: 0, 1, 2; Mamba-LTI: 0, 1 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Token budget}
+We first planned about 20 tokens per parameter, following Chinchilla~\cite{hoffmann2022chinchilla}. A
+short GPU smoke test on the free Kaggle T4 measured 10,370 tokens/s for the Transformer and
+10,815 tokens/s for Mamba with the \texttt{cuda} kernel, which put a full run at about 25 hours. Mamba
+with our \texttt{chunked} scan reached only 380 tokens/s, about 28 times slower than the kernel. We
+therefore cut the budget to 340M tokens so that the slower model finishes within one 11-hour free
+session, and reduced the step size so that the runs still take about 2,600 optimizer steps. Over the
+full runs the Transformer was much faster than the smoke test suggested: seed 0 averaged
+23,221 tokens/s (4.1 hours), against 11,198 tokens/s (8.4 hours) for Mamba with the \texttt{cuda}
+kernel.
+
+\subsection{Learning rate}
+Each architecture was trained for 30M tokens (228 steps) with the main runs' step size and their
+51 warmup steps, at learning rates from $1.5\times10^{-4}$ to $2.4\times10^{-3}$ (Table~\ref{tab:lr}).
+The rate with the lowest validation loss is used for the full runs, with one tie rule: rates within
+0.01 of the lowest loss count as tied and the lowest tied rate is used, because the full runs are about
+11 times longer, the best rate tends to fall as training gets longer, and a lower rate is less likely
+to diverge in fp16. We added this rule after seeing the sweep, in which two Mamba rates came out almost
+equal; we state it so the choice is transparent. The Transformer's best rate, $6\times10^{-4}$, lies
+inside the grid. For Mamba, $2.4\times10^{-3}$ gave the lowest loss, only 0.0008 below
+$1.2\times10^{-3}$, so the tie rule chose $1.2\times10^{-3}$. Because Mamba's lowest loss sits at the
+top of the grid, a higher rate might have done slightly better in these short runs; we did not test
+one. Mamba-LTI uses the Mamba rate.
+
+A first sweep used 2\% of each sweep run's own length as warmup, only 4 steps. Two Mamba rates diverged
+and the Transformer's best rate was the lowest one tried. Because the main runs warm up for 51 steps,
+that sweep was biased against high rates, so it was discarded and repeated with the main-run warmup.
+Its log is kept in the repository.
+
+\begin{table}[t]
+\centering
+\caption{Validation loss after 30M tokens in the learning-rate sweep. No run diverged. Bold: the rate used.}
+\label{tab:lr}
+\begin{tabular}{lrr}
+\toprule
+Learning rate & Transformer & Mamba \\
+\midrule
+$1.5\times10^{-4}$ & 6.022 & -- \\
+$3\times10^{-4}$ & 5.644 & 5.602 \\
+$6\times10^{-4}$ & \textbf{5.413} & 5.201 \\
+$1.2\times10^{-3}$ & 5.619 & \textbf{4.924} \\
+$2.4\times10^{-3}$ & 5.744 & 4.923 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Hardware}
+All runs used free Kaggle notebooks with two NVIDIA T4 GPUs (16 GB each), running two independent runs
+at a time, one per GPU. The eight main runs were split over the four team members' accounts. Training
+saves a full checkpoint (model, optimizer, loss scaler and random states) before the 12-hour session
+limit, so a run can resume in a later session.
+
+\subsection{Instruction fine-tuning}
+The seed-0 Transformer and Mamba are fine-tuned from their best pretraining checkpoints with identical
+settings. Every weight is trained. The loss is cross-entropy on the response tokens and the closing
+end-of-document token only. We use AdamW with $\beta = (0.9, 0.95)$ and no weight decay, 64 examples per
+step (micro-batch 8, accumulation 8, right-padded and grouped by length), 2 epochs, linear warmup over
+3\% of the steps and cosine decay to 10\% of the peak, gradient clipping at 1.0, and fp16 with the scan
+in fp32. Each model is fine-tuned at learning rates $3\times10^{-5}$, $10^{-4}$ and $3\times10^{-4}$; the
+rate is chosen on validation response loss with the same tie rule as in pretraining, and the checkpoint
+with the lowest validation loss is kept.
+\todo{chosen rates, training time and scan backend from results/sft/lr\_sweep.csv.}
+
+% ---------------------------------------------------------------------------------------------------
+\section{Evaluation Protocol}
+
+The test split is scored once, with the checkpoint chosen on validation; nothing is selected on it.
+
+\textbf{E1, quality.} Test loss (nats per token) and perplexity on 5M test tokens in 1,024-token
+windows; mean and standard deviation over seeds.
+
+\textbf{E2, selectivity.} Mamba against Mamba-LTI on E1, and on selective copying~\cite{gu2023mamba}:
+16 tokens to copy among noise tokens, width 64, sequence lengths 64 to 512.
+
+\textbf{E3, associative recall.} MQAR with widths 64, 128 and 256 and lengths 64 to 512, with
+$0.25 \cdot L/2$ key-value pairs; 2 Transformer layers against 4 Mamba layers; 4,000 steps at batch
+64; accuracy on 1,000 held-out sequences. We report the better of two learning rates
+($10^{-3}$ and $3\times10^{-3}$) for each setting, which favours every model equally. On natural text,
+a test token is a \emph{recall hit} if the pair (previous token, token) already occurred earlier in
+the same window~\cite{arora2023zoology}; we report the loss on hits and on all other tokens separately.
+
+\textbf{E4, length extrapolation.} The first 16,384 tokens of each PG-19 book in one forward pass, with
+per-token loss averaged in position bins that double in size from 128 tokens, for the seed-0 models.
+RoPE is applied beyond 1,024 positions without rescaling.
+
+\textbf{E5, efficiency.} Randomly initialised models with the trained configurations (speed does not
+depend on the weights), fp16 on one T4: prefill latency, peak memory and throughput, and per-token
+decode latency with a KV cache (Transformer) or the recurrent state (Mamba), for 512 to 32,768 tokens at
+batch 1 and 8. Timing uses CUDA events, the median of 10 runs after 3 warm-up runs. Mamba is timed with
+both the \texttt{cuda} and the \texttt{chunked} backend. Out-of-memory points are missing, and once one
+prefill takes over 20 s, longer lengths at that batch size are skipped.
+
+\textbf{E6, mechanism.} $\Delta_t$ for every layer and token of the seed-0 Mamba on the first 256 test
+tokens, the memory horizons it implies, and the seed-0 Transformer's attention maps on the same text.
+
+\textbf{E7, instruction following.} For each model before and after fine-tuning: the loss on the
+response tokens of every test example (prompt tokens are not scored); greedy answers of at most 128 new
+tokens to the first 100 test prompts, scored by ROUGE-L F1~\cite{lin2004rouge} against the reference
+answer and by the share of answers that end with the end-of-document token; and answers to eight
+hand-written prompts, shown as examples. One seed.
+
+% ---------------------------------------------------------------------------------------------------
+\section{Results}
+
+\subsection{Language-modelling quality (E1)}
+\todo{Table V from results/figures/table\_main.md: test loss and perplexity, mean $\pm$ std over
+seeds. One paragraph: which model has the lower test loss, and is the gap larger than the seed spread?}
+
+\begin{figure}[t]
+\centering
+\figfile{figures/fig1_training_curves.png}
+\caption{Validation loss against training tokens and training FLOPs. The band is the range over seeds.}
+\label{fig:curves}
+\end{figure}
+
+\subsection{Selectivity (E2)}
+\todo{Mamba against Mamba-LTI test loss from Table V, and selective-copy accuracy from
+results/synthetic/selective\_copy.csv.}
+
+\subsection{Associative recall (E3)}
+\todo{from results/synthetic/mqar.csv and results/S/perplexity.csv: where Mamba's MQAR accuracy falls
+as length grows, and whether Mamba's gap to the Transformer is larger on recall-hit tokens.}
+
+\begin{figure}[t]
+\centering
+\figfile{figures/fig3_synthetic.png}
+\caption{Accuracy against sequence length on MQAR (left) and selective copying (right), at the largest
+width tried.}
+\label{fig:synthetic}
+\end{figure}
+
+\begin{figure}[t]
+\centering
+\figfile{figures/fig4_recall_split.png}
+\caption{Test loss on recall-hit tokens and on all other tokens.}
+\label{fig:recall}
+\end{figure}
+
+\subsection{Length extrapolation (E4)}
+\todo{from results/S/long\_context.csv: what happens to each model's loss past 1,024 tokens.}
+
+\begin{figure}[t]
+\centering
+\figfile{figures/fig5_long_context.png}
+\caption{Loss by token position on PG-19. The dashed line marks the training length.}
+\label{fig:long}
+\end{figure}
+
+\subsection{Inference efficiency (E5)}
+\todo{from results/bench/bench.csv, naming the backend in every sentence: where the Transformer runs out
+of memory, and how decode latency grows with length for each model.}
+
+\begin{figure*}[t]
+\centering
+\figfile[width=\textwidth]{figures/fig6_efficiency.png}
+\caption{Prefill latency, peak prefill memory and per-token decode latency against length. Line style
+shows the Mamba scan backend.}
+\label{fig:bench}
+\end{figure*}
+
+\subsection{What selectivity does (E6)}
+\todo{from results/analysis/S/delta\_stats.json: which tokens get a large $\Delta$, and how the spread of
+memory horizons compares with the training length.}
+
+\subsection{Instruction fine-tuning (E7)}
+\todo{table from results/sft/test.csv: test response loss, ROUGE-L and end-of-document rate for each model
+before and after fine-tuning. One paragraph: does fine-tuning lower the response loss for both models, and
+is the gap after fine-tuning similar to the pretraining gap? Two or three answers per model copied exactly
+from results/sft/samples.md, saying plainly where they are wrong or repetitive.}
+
+% ---------------------------------------------------------------------------------------------------
+\section{Discussion}
+\todo{answer the research question in one paragraph; whether the recall results explain the quality
+gap; what the LTI ablation shows; the efficiency trade-off, separating architecture from
+implementation; whether instruction fine-tuning changes the comparison.}
+
+\section{Limitations}
+\begin{itemize}
+  \item \textbf{Scale and budget.} The models have 47M parameters and see 340M tokens, about 7 per
+        parameter, below the compute-optimal ratio of about 20. Published Mamba results start at 130M
+        parameters with much larger budgets, so our trends may not hold at larger scale. A pair of about
+        98M parameters was configured but not trained; the smoke test estimated about 104 to 105 hours
+        per run.
+  \item \textbf{Seeds.} Three seeds for the Transformer and Mamba and two for Mamba-LTI. Differences
+        smaller than the seed spread should not be called significant.
+  \item \textbf{Learning rate.} Tuned with 30M-token runs; Mamba's lowest sweep loss was at the top of
+        the grid, and Mamba-LTI was not tuned separately.
+  \item \textbf{One corpus, one tokenizer.} Perplexities compare only models that share this tokenizer
+        and test set.
+  \item \textbf{Free hardware.} The T4 has no native bf16, so training used fp16. Efficiency results
+        describe these implementations on this GPU.
+  \item \textbf{Proxies.} The recall-hit split counts repeated token pairs, which is only one form of
+        recall. PG-19 books differ from the web training text, which affects both models.
+  \item \textbf{Instruction fine-tuning.} One seed and one dataset, whose answers were written by
+        another model. ROUGE-L measures word overlap with one reference answer, not correctness, and
+        answers are cut at 128 new tokens.
+\end{itemize}
+
+\section{Conclusion}
+\todo{three to four sentences, written last.}
+
+\section*{Code and Data}
+Code, configurations, the Kaggle notebook and the per-run logs:
+\url{https://github.com/Gagan-1718/afml-transformer-vs-state-space-models}. FineWeb-Edu revision
+\texttt{87f09149ef4734204d70ed1d046ddc9ca3f2b8f9}; the tokenizer's SHA-256 and the split sizes are in
+\texttt{results/data/meta.json}.
+
+\begin{thebibliography}{99}
+
+\bibitem{vaswani2017attention}
+A.~Vaswani, N.~Shazeer, N.~Parmar, J.~Uszkoreit, L.~Jones, A.~N. Gomez, {\L}.~Kaiser, and
+I.~Polosukhin, ``Attention is all you need,'' in \emph{Advances in Neural Information Processing
+Systems (NeurIPS)}, 2017.
+
+\bibitem{gu2022s4}
+A.~Gu, K.~Goel, and C.~R{\'e}, ``Efficiently modeling long sequences with structured state spaces,''
+in \emph{International Conference on Learning Representations (ICLR)}, 2022.
+
+\bibitem{gu2023mamba}
+A.~Gu and T.~Dao, ``Mamba: Linear-time sequence modeling with selective state spaces,''
+arXiv:2312.00752, 2023.
+
+\bibitem{arora2023zoology}
+S.~Arora, S.~Eyuboglu, A.~Timalsina, I.~Johnson, M.~Poli, J.~Zou, A.~Rudra, and C.~R{\'e}, ``Zoology:
+Measuring and improving recall in efficient language models,'' arXiv:2312.04927, 2023.
+
+\bibitem{dao2024mamba2}
+T.~Dao and A.~Gu, ``Transformers are SSMs: Generalized models and efficient algorithms through
+structured state space duality,'' in \emph{International Conference on Machine Learning (ICML)}, 2024.
+
+\bibitem{zhang2019rmsnorm}
+B.~Zhang and R.~Sennrich, ``Root mean square layer normalization,'' in \emph{Advances in Neural
+Information Processing Systems (NeurIPS)}, 2019.
+
+\bibitem{su2021roformer}
+J.~Su, Y.~Lu, S.~Pan, A.~Murtadha, B.~Wen, and Y.~Liu, ``RoFormer: Enhanced transformer with rotary
+position embedding,'' arXiv:2104.09864, 2021.
+
+\bibitem{shazeer2020glu}
+N.~Shazeer, ``GLU variants improve transformer,'' arXiv:2002.05202, 2020.
+
+\bibitem{penedo2024fineweb}
+G.~Penedo, H.~Kydl{\'i}{\v{c}}ek, L.~Ben~Allal, A.~Lozhkov, M.~Mitchell, C.~Raffel, L.~Von~Werra, and
+T.~Wolf, ``The FineWeb datasets: Decanting the web for the finest text data at scale,''
+arXiv:2406.17557, 2024.
+
+\bibitem{rae2020compressive}
+J.~W. Rae, A.~Potapenko, S.~M. Jayakumar, C.~Hillier, and T.~P. Lillicrap, ``Compressive transformers
+for long-range sequence modelling,'' in \emph{International Conference on Learning Representations
+(ICLR)}, 2020.
+
+\bibitem{loshchilov2019adamw}
+I.~Loshchilov and F.~Hutter, ``Decoupled weight decay regularization,'' in \emph{International
+Conference on Learning Representations (ICLR)}, 2019.
+
+\bibitem{hoffmann2022chinchilla}
+J.~Hoffmann \emph{et~al.}, ``Training compute-optimal large language models,'' arXiv:2203.15556, 2022.
+
+\bibitem{wei2022flan}
+J.~Wei, M.~Bosma, V.~Y. Zhao, K.~Guu, A.~W. Yu, B.~Lester, N.~Du, A.~M. Dai, and Q.~V. Le, ``Finetuned
+language models are zero-shot learners,'' in \emph{International Conference on Learning Representations
+(ICLR)}, 2022.
+
+\bibitem{taori2023alpaca}
+R.~Taori, I.~Gulrajani, T.~Zhang, Y.~Dubois, X.~Li, C.~Guestrin, P.~Liang, and T.~B. Hashimoto,
+``Stanford Alpaca: An instruction-following LLaMA model,''
+\url{https://github.com/tatsu-lab/stanford_alpaca}, 2023.
+
+\bibitem{wang2023selfinstruct}
+Y.~Wang, Y.~Kordi, S.~Mishra, A.~Liu, N.~A. Smith, D.~Khashabi, and H.~Hajishirzi, ``Self-Instruct:
+Aligning language models with self-generated instructions,'' in \emph{Annual Meeting of the Association
+for Computational Linguistics (ACL)}, 2023.
+
+\bibitem{lin2004rouge}
+C.-Y. Lin, ``ROUGE: A package for automatic evaluation of summaries,'' in \emph{Text Summarization
+Branches Out (ACL Workshop)}, 2004.
+
+\end{thebibliography}
+
+\end{document}
