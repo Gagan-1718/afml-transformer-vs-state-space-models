@@ -82,7 +82,8 @@ cell, then run. Every stage is resumable.
 3. `sweep` — learning-rate sweep at scale S, with the main runs' 51 warmup steps (about 2.5–3 h).
 4. `S` — the main runs, about 9.5 h each, split over team accounts with `ONLY_RUNS`.
 5. `synthetic` — MQAR and selective-copying grids (4,000 steps per point). `synthetic_long` repeats
-   selective copying at 40,000 steps (lengths 64 and 256) and saves accuracy curves.
+   selective copying at 40,000 steps (lengths 64 and 256) and saves accuracy curves; `mqar_long` does the
+   same for MQAR at length 128 (widths 64, 128, 256).
 6. `eval` — test perplexity, PG-19, efficiency, Δ analysis.
 7. `sft` — instruction fine-tuning of `S_transformer_s0` and `S_mamba_s0` (4 learning rates each, chosen on val).
 8. `M` — 98M models; configured but not in the current plan (~100 h per run on a T4).
