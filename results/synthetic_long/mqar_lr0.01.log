@@ -1,0 +1,11 @@
+
+[Tue Nov 10 15:22:18 2026] $ /usr/bin/python3 -m afml.eval.synthetic --task mqar --archs transformer mamba mamba_lti --lrs 0.01 --d-models 64 128 256 --seq-lens 128 --steps 40000 --eval-every 1000 --out /kaggle/working/afml/results/synthetic_long/mqar_lr0.01.csv --curve /kaggle/working/afml/results/synthetic_long/mqar_lr0.01_curve.csv
+{'task': 'mqar', 'arch': 'transformer', 'd_model': 64, 'seq_len': 128, 'num_kv_or_tokens': 16, 'lr': 0.01, 'accuracy': 0.181, 'steps': 40000, 'params': 631104, 'seconds': 882.4, 'seed': 0}
+{'task': 'mqar', 'arch': 'mamba', 'd_model': 64, 'seq_len': 128, 'num_kv_or_tokens': 16, 'lr': 0.01, 'accuracy': 0.1595625, 'steps': 40000, 'params': 655168, 'seconds': 1303.4, 'seed': 0}
+{'task': 'mqar', 'arch': 'mamba_lti', 'd_model': 64, 'seq_len': 128, 'num_kv_or_tokens': 16, 'lr': 0.01, 'accuracy': 0.1823125, 'steps': 40000, 'params': 634816, 'seconds': 1190.8, 'seed': 0}
+{'task': 'mqar', 'arch': 'transformer', 'd_model': 128, 'seq_len': 128, 'num_kv_or_tokens': 16, 'lr': 0.01, 'accuracy': 0.05375, 'steps': 40000, 'params': 1475200, 'seconds': 1498.4, 'seed': 0}
+{'task': 'mqar', 'arch': 'mamba', 'd_model': 128, 'seq_len': 128, 'num_kv_or_tokens': 16, 'lr': 0.01, 'accuracy': 0.9959375, 'steps': 33000, 'params': 1515136, 'seconds': 1980.2, 'seed': 0}
+{'task': 'mqar', 'arch': 'mamba_lti', 'd_model': 128, 'seq_len': 128, 'num_kv_or_tokens': 16, 'lr': 0.01, 'accuracy': 0.1685625, 'steps': 40000, 'params': 1466112, 'seconds': 2093.1, 'seed': 0}
+{'task': 'mqar', 'arch': 'transformer', 'd_model': 256, 'seq_len': 128, 'num_kv_or_tokens': 16, 'lr': 0.01, 'accuracy': 0.995625, 'steps': 18000, 'params': 3704064, 'seconds': 1378.1, 'seed': 0}
+{'task': 'mqar', 'arch': 'mamba', 'd_model': 256, 'seq_len': 128, 'num_kv_or_tokens': 16, 'lr': 0.01, 'accuracy': 0.2016875, 'steps': 40000, 'params': 3849472, 'seconds': 4720.2, 'seed': 0}
+{'task': 'mqar', 'arch': 'mamba_lti', 'd_model': 256, 'seq_len': 128, 'num_kv_or_tokens': 16, 'lr': 0.01, 'accuracy': 0.2044375, 'steps': 40000, 'params': 3718528, 'seconds': 4167.0, 'seed': 0}

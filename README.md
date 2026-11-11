@@ -1,134 +1,175 @@
-# Transformer vs selective state-space (Mamba) language models
+# Swapping Attention for Selective State Spaces
 
-Team Abcd — AFML course project (UE24AM342AA1)
+Training and evaluating a Mamba-style small language model against a Transformer of the same size.
 
-**Question.** At the same parameter count, training data and token budget, can a Mamba-style
-selective state-space model match a Transformer's language-modelling quality, and where does it
-win or lose: memory recall, long context, inference speed and memory?
+AFML course project (UE24AM342AA1), PES University. **Team Abcd:**
 
-## What is in the study
+| Name | SRN |
+| --- | --- |
+| Krishna G Pai | PES1UG24AM372 |
+| Dikshith Varma M N | PES1UG24AM363 |
+| Gagandeep N | PES1UG24AM367 |
+| Mallikarjuna Rao R V | PES1UG24AM155 |
 
-| ID | Experiment | Script |
+## Question
+
+We give a Transformer and a Mamba-style selective state-space model the same parameter count (about 47M),
+the same data and the same number of training tokens. How do they compare in language-modelling quality,
+recall, long-context behaviour and inference cost? And what does Mamba's input-dependent (selective) state
+update contribute? To answer the second part we also train Mamba-LTI, a copy of Mamba whose state update
+does not depend on the input.
+
+## Deliverables
+
+| Item | Where | Status |
 | --- | --- | --- |
-| E1 | Transformer vs Mamba (3 seeds each) vs Mamba-LTI (2 seeds) at ~47M parameters, 340M training tokens each | `afml/train.py` |
-| E2 | Selectivity ablation: Mamba vs time-invariant Mamba (LM loss + selective copying) | `configs/*_mamba_lti.json`, `afml/eval/synthetic.py` |
-| E3 | Associative recall: MQAR grid, and test loss split into recall-hit vs other tokens | `afml/eval/synthetic.py`, `afml/eval/perplexity.py` |
-| E4 | Length extrapolation: per-position loss on PG-19 books up to 16K tokens (trained at 1K) | `afml/eval/long_context.py` |
-| E5 | Inference efficiency: prefill/decode latency, peak memory vs length, cached decoding | `afml/eval/bench.py` |
-| E6 | Mechanism: Mamba's step size Δ per token, memory horizon, attention maps | `afml/eval/analysis.py` |
-| E7 | Instruction fine-tuning of the seed-0 Transformer and Mamba on Alpaca-cleaned (~52k pairs, loss on responses only): response loss, ROUGE-L and sample answers before vs after | `afml/sft.py` |
+| Code, configs, notebook, results | this repository | complete |
+| Links to the datasets | [deliverables/datasets.md](deliverables/datasets.md) | complete |
+| Paper (IEEE format, PDF) | [deliverables/paper/](deliverables/paper/) | LaTeX draft; results text in progress |
+| Slide deck (PDF) | [deliverables/slides/](deliverables/slides/) | in progress |
+| Presentation video (at most 7 minutes) | [deliverables/video/](deliverables/video/) | to be recorded |
 
-Model sizes (vocabulary 16,384; Mamba uses 2 layers per Transformer layer, `d_inner` matched by
-`scripts/make_configs.py`):
+## Results at a glance
 
-| Scale | Width | Transformer | Mamba | Non-embedding params | Total params | Mismatch | Training tokens | Role |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| S | 512 | 12 layers | 24 layers, d_inner 968 | 38.5M | ~47M | 0.22% | 340M | main study |
-| M | 768 | 12 layers | 24 layers, d_inner 1440 | 85.0M | ~98M | 0.11% | 1.95B | configured, not run (~100 h per run on a T4) |
+Every number below is copied from a file in [results/](results/); [results/README.md](results/README.md)
+says which file. All models have about 47M parameters and saw 340M training tokens. Each run used one free
+Kaggle T4 GPU.
 
-The time-invariant ablation (Mamba-LTI, S only) uses d_inner 1032 (mismatch 0.20%).
+| | Transformer | Mamba | Mamba-LTI |
+| --- | --- | --- | --- |
+| Test loss, mean ± std over seeds (nats/token) | 3.531 ± 0.005 (3 seeds) | **3.484 ± 0.005** (3 seeds) | 3.661 ± 0.006 (2 seeds) |
+| Test perplexity | 34.14 | **32.59** | 38.88 |
+| Test loss on recall-hit tokens (16.8% of tokens) | **1.387** | 1.762 | 2.416 |
+| Test loss on all other tokens | 3.964 | **3.832** | 3.912 |
+| PG-19 loss at positions 8K–16K (trained on 1K; seed 0) | 5.619 | **3.879** | 4.102 |
+| Memory while decoding, batch 8, 32K context | 6,260.5 MiB | **116.0 MiB** | not measured |
+| Decode time per new token, batch 8, 32K context | 46.5 ms | **23.9 ms** | not measured |
+| Training time per run | 4.0–4.4 h | 8.2–8.5 h | 7.4–8.1 h |
 
-**Why 340M tokens and not ~20 per parameter (940M):** the Kaggle T4 smoke test measured about 10,400
-training tokens/s for both models (Mamba with the `mamba-ssm` kernel), so 940M tokens would take ~25 h per
-run. 340M tokens fits one 11-hour free session (~9.3 h). Both models always get identical tokens. Steps are
-131,072 tokens (~2,600 optimizer steps) so the shorter runs still get many updates.
+Mamba numbers for decoding and training use the official `mamba-ssm` kernel (the `cuda` scan backend).
 
-## Code map
+![Validation loss during training](results/figures/fig1_training_curves.png)
+
+### What we found
+
+1. **Quality (E1).** Mamba's mean test loss is 0.046 lower than the Transformer's. The seed-to-seed
+   standard deviation is at most 0.006 for every model, so the gap is not seed noise.
+2. **Selectivity (E2).** Removing selectivity (Mamba-LTI) raises the test loss by 0.176 over Mamba. On
+   selective copying (40,000 training steps), Mamba reached 99% accuracy at both lengths and both learning
+   rates. Mamba-LTI reached 99% only at learning rate 3e-3, after 28,000–29,000 steps; at 1e-3 it stopped at
+   54.2% (length 64) and 12.9% (length 256). The Transformer reached 99% at length 64 but only 91.9–93.3% at
+   length 256.
+3. **Recall (E3).** A recall-hit token is a position where the pair (current token, next token) already
+   appeared earlier in the same 1,024-token window, so the answer can be copied from the context. The
+   Transformer is best on these tokens (1.387 against Mamba's 1.762); Mamba is best on all other tokens
+   (3.832 against 3.964). On MQAR (length 128, 16 key-value pairs, one seed, four learning rates), no model
+   solved width 64 (best 19.6%). At widths 128 and 256 both the Transformer and Mamba reached at least 99.5%,
+   but each only at one of the four learning rates. Mamba-LTI never went above 20.6%.
+4. **Long context (E4).** On 50 PG-19 books, the Transformer's loss rises from 3.396 (positions 512–1,024)
+   to 5.619 (positions 8K–16K), past its 1,024-token training length. Mamba's rises from 3.399 to 3.879.
+5. **Inference (E5).** On one T4 in fp16, the Transformer's KV cache grows with the context. At batch 8 its
+   decoding memory goes from 210.6 MiB (512 tokens) to 6,260.5 MiB (32K). Mamba's stays at 114.0–116.0 MiB,
+   because its recurrent state has a fixed size (7.1 MiB at batch 8). Up to 8K tokens the Transformer decodes
+   faster; at 32K Mamba is faster at both batch sizes. Our pure-PyTorch `chunked` scan computes the same
+   result as the `cuda` kernel but is about 20 times slower at prefill (21.2 s against 1.04 s at 32K tokens,
+   batch 1). That is an implementation effect, not an architecture effect.
+6. **Mechanism (E6).** For the seed-0 Mamba, the median memory horizon 1/(Δ·|A|) of the state channels is
+   3–31 tokens in 22 of the 24 layers. Layers 14 and 18 (counting from 0) keep information longer: 80 and 225
+   tokens.
+7. **Instruction fine-tuning (E7).** We fine-tuned both seed-0 models on Alpaca-cleaned (49,570 training
+   examples, 2 epochs, learning rate 3e-4 chosen on validation). Test loss on the response tokens fell from
+   2.993 to 2.201 (Transformer) and from 2.975 to 2.163 (Mamba). ROUGE-L on 100 test prompts rose from 0.027
+   to 0.212 and from 0.000 to 0.222. After fine-tuning, 54–55% of answers end on their own with an
+   end-of-text token; before, none did.
+
+More figures: selective copying ([fig2](results/figures/fig2_selective_copy.png)), MQAR
+([fig3](results/figures/fig3_mqar.png)), recall split ([fig4](results/figures/fig4_recall_split.png)),
+PG-19 ([fig5](results/figures/fig5_long_context.png)), efficiency
+([fig6](results/figures/fig6_efficiency.png)), memory horizon
+([fig7](results/figures/fig7_memory_horizon.png)), fine-tuning ([fig8](results/figures/fig8_sft.png)).
+Full tables: [main](results/figures/table_main.md), [synthetic tasks](results/figures/table_synthetic_long.md),
+[fine-tuning](results/figures/table_sft.md).
+
+### Limitations
+
+- **Scale.** 47M parameters and 340M tokens (about 7 tokens per parameter, below the compute-optimal ~20).
+  Published Mamba results start at 130M parameters, so these trends may change at larger scale.
+- **Seeds.** Three seeds for the Transformer and Mamba and two for Mamba-LTI in E1. The synthetic tasks,
+  PG-19, the Δ analysis and fine-tuning use one seed.
+- **Tuning.** Learning rates were chosen with 30M-token runs on the validation split. Mamba-LTI reuses
+  Mamba's learning rate.
+- **Hardware.** Free T4 GPUs, fp16. Speed and memory numbers describe these implementations on this GPU.
+
+## Repository layout
 
 ```text
-afml/
-  config.py              model settings
-  models/transformer.py  pre-norm Transformer: RoPE, SwiGLU, RMSNorm, KV cache
-  models/mamba.py        Mamba-1 block; scans: sequential (reference), parallel, chunked (default), cuda (optional)
-  models/lm.py           shared LM wrapper, cached generation, weight-decay groups, FLOP estimate
-  data/build.py          FineWeb-Edu + PG-19 -> 16K BPE -> uint16 token files (hash-based train/val/test split)
-  data/loader.py         memory-mapped batches
-  train.py               trainer: warmup + cosine, AdamW, mixed precision, grad accumulation, resume, auto batch size
-  eval/                  perplexity, long_context, synthetic, bench, analysis
-  sft.py                 instruction fine-tuning: Alpaca-cleaned prep, response-only loss, LR choice on val, test
-configs/                 data.json and parameter-matched run configs
-scripts/                 make_configs, sweep_lr, smoke_report, collect_results, make_figures
-notebooks/run_study.ipynb   runs everything on a free Kaggle or Colab GPU
-tests/                   correctness tests (run these first)
-report/report.md         course report draft; result slots marked TODO(results) are filled from results/
-docs/                    TEAMMATE_GUIDE.md (one Kaggle run per teammate), COORDINATOR_CHECKLIST.md
-results/pilot/           the earlier 0.56M-parameter Review 1 pilot, kept for history
+afml/                     the code
+  config.py               model settings
+  models/                 transformer.py, mamba.py (scans: sequential, parallel, chunked, cuda), lm.py
+  data/                   build.py (FineWeb-Edu + PG-19 -> 16K BPE token files), loader.py
+  train.py                trainer: warmup + cosine, AdamW, fp16/bf16, grad accumulation, resume
+  sft.py                  instruction fine-tuning on Alpaca-cleaned
+  eval/                   perplexity, long_context, synthetic, bench, analysis
+configs/                  data.json and the parameter-matched model configs
+scripts/                  make_configs, sweep_lr, smoke_report, collect_results, make_figures
+notebooks/run_study.ipynb runs every stage on a free Kaggle (or Colab) GPU
+tests/                    correctness tests: every scan matches the step-by-step reference
+results/                  every number in the paper; README.md maps files to experiments
+  figures/                all figures and tables (made by scripts/make_figures.py)
+deliverables/             paper, slides, video and dataset links for the submission
+docs/REPRODUCE.md         how to rerun everything, and which team member ran which stage
 ```
 
-### Why the chunked scan matters
+## Models
 
-The original parallel scan keeps O(log L) tensors of size batch × length × d_inner × d_state for
-backpropagation. On an earlier ~17M-parameter Mamba (width 384, 12 layers) it used more than 7 GB for
-**two** sequences of 1,024 tokens and was killed. The chunked scan runs the same recurrence chunk by
-chunk under activation checkpointing; that same ~17M model then trained a 2 × 1,024 batch in 2.4 GB
-on CPU. These numbers come from that earlier model, not from the current S and M sizes. Tests check
-that all scans agree with the step-by-step reference in outputs **and gradients**.
+Vocabulary 16,384, context 1,024. Mamba uses two layers for each Transformer layer, and
+`scripts/make_configs.py` searches Mamba's inner width so the non-embedding parameter counts match.
+
+| Model | Layers | Width | Inner width | Non-embedding params | Total params | Gap to Transformer |
+| --- | --- | --- | --- | --- | --- | --- |
+| Transformer | 12 | 512 | – | 38,547,968 | 46,936,576 | – |
+| Mamba | 24 | 512 | 968 | 38,461,760 | 46,850,368 | 0.22% |
+| Mamba-LTI | 24 | 512 | 1,032 | 38,626,880 | 47,015,488 | 0.20% |
+
+A pair of about 98M parameters (`configs/M_*.json`) is configured but was not trained: the smoke test put it
+at about 104–105 hours per run on a T4.
+
+**Why 340M tokens and not 20 per parameter (940M).** The smoke test measured 10,370 (Transformer) and 10,815
+(Mamba, `cuda` scan) training tokens per second on a T4, so 940M tokens would take about 25 hours per run.
+340M tokens fits in one free 12-hour Kaggle session. Every run sees exactly 339,869,696 tokens (2,593 steps of
+131,072 tokens), sampled at random positions from the same training split.
 
 ## Run it
 
-**On your laptop (CPU): check everything works**
+On a laptop (CPU), check that everything works:
 
 ```bash
 python -m pip install -r requirements.txt
 python -m pytest -q
 ```
 
-**On a free GPU: the real experiments.** Open `notebooks/run_study.ipynb` on Kaggle (recommended:
-about 30 free GPU-hours per week after phone verification) or Colab. Set `STAGES` in the first code
-cell, then run. Every stage is resumable.
-
-1. `data` — build the token files once: 2B training tokens (1.1 h, CPU session).
-2. `smoke` — 20-step GPU check: speed, memory and time estimates for full runs (0.3 h).
-3. `sweep` — learning-rate sweep at scale S, with the main runs' 51 warmup steps (about 2.5–3 h).
-4. `S` — the main runs, about 9.5 h each, split over team accounts with `ONLY_RUNS`.
-5. `synthetic` — MQAR and selective-copying grids (4,000 steps per point). `synthetic_long` repeats
-   selective copying at 40,000 steps (lengths 64 and 256) and saves accuracy curves; `mqar_long` does the
-   same for MQAR at length 128 (widths 64, 128, 256; learning rates 1e-3 and 3e-3), and `mqar_long_extra`
-   adds learning rates 3e-4 and 1e-2.
-6. `eval` — test perplexity, PG-19, efficiency, Δ analysis.
-7. `sft` — instruction fine-tuning of `S_transformer_s0` and `S_mamba_s0` (4 learning rates each, chosen on val).
-8. `M` — 98M models; configured but not in the current plan (~100 h per run on a T4).
-9. `figures` — all figures, `table_main.md`, and `results.zip`.
-
-On Kaggle: run each stage with *Save Version → Save & Run All* (Internet on, GPU **T4 x2**). Next
-session, *Add Input* → the data version's output **and** the latest version's output, so data,
-finished runs and paused runs are reused.
-
-- **Both T4 GPUs are used:** independent runs train two at a time, one per GPU.
-- **No lost work at the 12-hour limit:** training pauses cleanly at `SESSION_HOURS` (default 11) by
-  saving `last.pt`, and resumes in the next session.
-- **The `data` stage needs no GPU:** run it in a CPU session to save GPU quota.
-- **Small outputs:** finished runs keep only `best.pt`; finished sweep and smoke runs keep no weights.
-- **Splitting work across team accounts:** set `ONLY_RUNS`, then add each other's outputs as inputs.
-  Step-by-step: [docs/TEAMMATE_GUIDE.md](docs/TEAMMATE_GUIDE.md) and
-  [docs/COORDINATOR_CHECKLIST.md](docs/COORDINATOR_CHECKLIST.md).
-- **The `smoke` stage measures real speed first:** `scripts/smoke_report.py` turns 20-step runs into
-  tokens/sec, micro-batch and peak memory, plus planning estimates of hours per run and per stage.
-
-Single commands, for reference:
+The experiments run on free Kaggle GPUs through `notebooks/run_study.ipynb`. Set `STAGES` in its first code
+cell (`data`, `smoke`, `sweep`, `S`, `synthetic`, `synthetic_long`, `mqar_long`, `mqar_long_extra`, `eval`,
+`sft`, `figures`) and run it. Step-by-step instructions, stage times and single commands are in
+[docs/REPRODUCE.md](docs/REPRODUCE.md). To remake every figure and table from the files in `results/`:
 
 ```bash
-python -m afml.data.build --config configs/data.json --out DATA
-python scripts/make_configs.py
-python -m afml.train --config configs/S_mamba.json --data DATA --out runs/S_mamba_s0 --set train.seed=0
-python -m afml.eval.perplexity --runs runs/S_* --data DATA --out results/S/perplexity.csv
 python scripts/make_figures.py --results results --out results/figures
 ```
 
-## Honesty rules for results
+## Rules we followed
 
-- Validation picks checkpoints and learning rates; the **test** split is scored once at the end.
-- Perplexities compare only models sharing this tokenizer and test set.
-- Speed claims name the scan backend: pure-PyTorch Mamba is slower than the fused kernel, which is
-  an implementation effect, not an architecture effect.
-- Results at ~47M parameters and 340M training tokens (~7 per parameter, below the compute-optimal ~20)
-  may not hold at larger scale or longer training.
+- The validation split chooses checkpoints and learning rates. The test split is scored once at the end.
+- Perplexities compare only models that share this tokenizer and test set.
+- Every speed or memory number names the Mamba scan backend.
+- Results we did not expect (for example, the Transformer beating Mamba on recall-hit tokens) are reported
+  as measured.
 
 ## References
 
-- Gu & Dao (2023), [Mamba](https://arxiv.org/abs/2312.00752)
-- Gu, Goel & Ré (2021), [S4](https://arxiv.org/abs/2111.00396)
-- Dao & Gu (2024), [Mamba-2 / SSD](https://arxiv.org/abs/2405.21060)
-- Arora et al. (2023), [Zoology / MQAR](https://arxiv.org/abs/2312.04927)
-- Hoffmann et al. (2022), [Chinchilla](https://arxiv.org/abs/2203.15556)
-- Data: [FineWeb-Edu](https://huggingface.co/datasets/HuggingFaceFW/fineweb-edu), [PG-19](https://huggingface.co/datasets/deepmind/pg19) (Parquet copy: `emozilla/pg19`)
+- Gu & Dao (2023), [Mamba: Linear-Time Sequence Modeling with Selective State Spaces](https://arxiv.org/abs/2312.00752)
+- Gu, Goel & Ré (2021), [Efficiently Modeling Long Sequences with Structured State Spaces (S4)](https://arxiv.org/abs/2111.00396)
+- Dao & Gu (2024), [Transformers are SSMs (Mamba-2)](https://arxiv.org/abs/2405.21060)
+- Arora et al. (2023), [Zoology: Measuring and Improving Recall in Efficient Language Models](https://arxiv.org/abs/2312.04927)
+- Hoffmann et al. (2022), [Training Compute-Optimal Large Language Models (Chinchilla)](https://arxiv.org/abs/2203.15556)
+- Datasets: see [deliverables/datasets.md](deliverables/datasets.md)

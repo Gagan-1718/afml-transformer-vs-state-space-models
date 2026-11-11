@@ -1,0 +1,7 @@
+task,arch,d_model,seq_len,num_kv_or_tokens,lr,accuracy,steps,params,seconds,seed
+selective_copy,transformer,64,64,16,0.003,0.9966875,11000,107968,107.4,0
+selective_copy,mamba,64,64,16,0.003,0.9966875,9000,132032,134.4,0
+selective_copy,mamba_lti,64,64,16,0.003,0.9953125,31000,111680,413.2,0
+selective_copy,transformer,64,256,16,0.003,0.9330625,40000,107968,601.7,0
+selective_copy,mamba,64,256,16,0.003,0.99575,13000,132032,449.3,0
+selective_copy,mamba_lti,64,256,16,0.003,0.9968125,32000,111680,909.5,0

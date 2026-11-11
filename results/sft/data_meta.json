@@ -1,0 +1,42 @@
+{
+  "dataset": "yahma/alpaca-cleaned",
+  "revision": "12567cabf869d7c92e573c7c783905fc160e9639",
+  "license": "CC BY 4.0",
+  "template": "### Instruction:\n{instruction}\n\n### Response:\n",
+  "template_with_input": "### Instruction:\n{instruction}\n\n### Input:\n{input}\n\n### Response:\n",
+  "split_rule": "int(sha256(prompt + NUL + response)[:8], 16) % 1000: <20 test, <40 val, else train",
+  "loss": "response tokens and the closing [EOS] only",
+  "max_len": 1024,
+  "eos_id": 1,
+  "tokenizer_sha256": "c51b6e0f1fce5db6858e0bb40b9ff3532590d25acebc6f19106e0a790efef2f7",
+  "raw": 51760,
+  "duplicates": 4,
+  "empty": 0,
+  "too_long": 30,
+  "splits": {
+    "train": {
+      "examples": 49570,
+      "tokens": 9738744,
+      "prompt_tokens": 1915165,
+      "response_tokens": 7823579,
+      "mean_tokens": 196.5,
+      "max_tokens": 1024
+    },
+    "val": {
+      "examples": 1081,
+      "tokens": 215870,
+      "prompt_tokens": 42559,
+      "response_tokens": 173311,
+      "mean_tokens": 199.7,
+      "max_tokens": 890
+    },
+    "test": {
+      "examples": 1075,
+      "tokens": 211944,
+      "prompt_tokens": 41056,
+      "response_tokens": 170888,
+      "mean_tokens": 197.2,
+      "max_tokens": 904
+    }
+  }
+}

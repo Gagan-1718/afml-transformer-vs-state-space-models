@@ -1,0 +1,5 @@
+arch,stage,run,test_examples,test_response_tokens,test_response_loss,test_response_ppl,generated,max_new_tokens,rouge_l,eos_rate,mean_new_tokens,decoding
+mamba,pretrained,S_mamba_s0,1075,170888,2.975321247762835,19.595917383173738,100,128,0.0,0.0,128.0,greedy
+mamba,instruction-tuned,S_mamba_s0_lr0.0003,1075,170888,2.162970653316244,8.696934900664475,100,128,0.2223133757606675,0.55,77.37,greedy
+transformer,pretrained,S_transformer_s0,1075,170888,2.993438813923104,19.954183366764422,100,128,0.026584052833433548,0.0,128.0,greedy
+transformer,instruction-tuned,S_transformer_s0_lr0.0003,1075,170888,2.2008524424551714,9.032710084081225,100,128,0.212085054460895,0.54,75.87,greedy

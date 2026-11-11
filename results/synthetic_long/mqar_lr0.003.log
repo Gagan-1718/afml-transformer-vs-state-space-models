@@ -1,0 +1,11 @@
+
+[Tue Nov 10 06:04:30 2026] $ /usr/bin/python3 -m afml.eval.synthetic --task mqar --archs transformer mamba mamba_lti --lrs 0.003 --d-models 64 128 256 --seq-lens 128 --steps 40000 --eval-every 1000 --out /kaggle/working/afml/results/synthetic_long/mqar_lr0.003.csv --curve /kaggle/working/afml/results/synthetic_long/mqar_lr0.003_curve.csv
+{'task': 'mqar', 'arch': 'transformer', 'd_model': 64, 'seq_len': 128, 'num_kv_or_tokens': 16, 'lr': 0.003, 'accuracy': 0.031375, 'steps': 40000, 'params': 631104, 'seconds': 877.2, 'seed': 0}
+{'task': 'mqar', 'arch': 'mamba', 'd_model': 64, 'seq_len': 128, 'num_kv_or_tokens': 16, 'lr': 0.003, 'accuracy': 0.196375, 'steps': 40000, 'params': 655168, 'seconds': 1295.8, 'seed': 0}
+{'task': 'mqar', 'arch': 'mamba_lti', 'd_model': 64, 'seq_len': 128, 'num_kv_or_tokens': 16, 'lr': 0.003, 'accuracy': 0.1920625, 'steps': 40000, 'params': 634816, 'seconds': 1176.1, 'seed': 0}
+{'task': 'mqar', 'arch': 'transformer', 'd_model': 128, 'seq_len': 128, 'num_kv_or_tokens': 16, 'lr': 0.003, 'accuracy': 0.0573125, 'steps': 40000, 'params': 1475200, 'seconds': 1528.3, 'seed': 0}
+{'task': 'mqar', 'arch': 'mamba', 'd_model': 128, 'seq_len': 128, 'num_kv_or_tokens': 16, 'lr': 0.003, 'accuracy': 0.212625, 'steps': 40000, 'params': 1515136, 'seconds': 2434.4, 'seed': 0}
+{'task': 'mqar', 'arch': 'mamba_lti', 'd_model': 128, 'seq_len': 128, 'num_kv_or_tokens': 16, 'lr': 0.003, 'accuracy': 0.166375, 'steps': 40000, 'params': 1466112, 'seconds': 2079.2, 'seed': 0}
+{'task': 'mqar', 'arch': 'transformer', 'd_model': 256, 'seq_len': 128, 'num_kv_or_tokens': 16, 'lr': 0.003, 'accuracy': 0.217625, 'steps': 40000, 'params': 3704064, 'seconds': 3069.8, 'seed': 0}
+{'task': 'mqar', 'arch': 'mamba', 'd_model': 256, 'seq_len': 128, 'num_kv_or_tokens': 16, 'lr': 0.003, 'accuracy': 0.9950625, 'steps': 22000, 'params': 3849472, 'seconds': 2636.7, 'seed': 0}
+{'task': 'mqar', 'arch': 'mamba_lti', 'd_model': 256, 'seq_len': 128, 'num_kv_or_tokens': 16, 'lr': 0.003, 'accuracy': 0.2061875, 'steps': 40000, 'params': 3718528, 'seconds': 4158.7, 'seed': 0}

@@ -1,0 +1,43 @@
+{
+  "arch": "mamba",
+  "init": "S_mamba_s0",
+  "params_total": 46850368,
+  "lr": 0.0003,
+  "epochs": 2,
+  "steps": 1550,
+  "best_step": 1550,
+  "init_val_loss": 2.96337607479293,
+  "best_val_loss": 2.18545054576659,
+  "best_val_ppl": 8.894655099937856,
+  "train_examples": 49570,
+  "response_tokens_trained": 15647158,
+  "tokens_processed": 19378348,
+  "tokens_per_sec": 8245.314494499155,
+  "train_seconds": 2350.225453853607,
+  "eval_seconds": 141.50827980041504,
+  "device": "Tesla T4",
+  "peak_memory_gb": 8.201403617858887,
+  "precision": "torch.float16",
+  "scan_backend": "cuda",
+  "sft_config": {
+    "seed": 0,
+    "lr": 0.0003,
+    "epochs": 2,
+    "micro_batch": 8,
+    "grad_accum": 8,
+    "min_lr_ratio": 0.1,
+    "warmup_frac": 0.03,
+    "warmup_steps": null,
+    "weight_decay": 0.0,
+    "betas": [
+      0.9,
+      0.95
+    ],
+    "grad_clip": 1.0,
+    "precision": "auto",
+    "eval_every": 100,
+    "log_every": 10
+  },
+  "dataset": "yahma/alpaca-cleaned",
+  "revision": "12567cabf869d7c92e573c7c783905fc160e9639"
+}

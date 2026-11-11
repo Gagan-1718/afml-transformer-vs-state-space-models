@@ -1,0 +1,11 @@
+
+[Tue Nov 10 15:22:18 2026] $ /usr/bin/python3 -m afml.eval.synthetic --task mqar --archs transformer mamba mamba_lti --lrs 0.0003 --d-models 64 128 256 --seq-lens 128 --steps 40000 --eval-every 1000 --out /kaggle/working/afml/results/synthetic_long/mqar_lr0.0003.csv --curve /kaggle/working/afml/results/synthetic_long/mqar_lr0.0003_curve.csv
+{'task': 'mqar', 'arch': 'transformer', 'd_model': 64, 'seq_len': 128, 'num_kv_or_tokens': 16, 'lr': 0.0003, 'accuracy': 0.17775, 'steps': 40000, 'params': 631104, 'seconds': 856.7, 'seed': 0}
+{'task': 'mqar', 'arch': 'mamba', 'd_model': 64, 'seq_len': 128, 'num_kv_or_tokens': 16, 'lr': 0.0003, 'accuracy': 0.0989375, 'steps': 40000, 'params': 655168, 'seconds': 1240.1, 'seed': 0}
+{'task': 'mqar', 'arch': 'mamba_lti', 'd_model': 64, 'seq_len': 128, 'num_kv_or_tokens': 16, 'lr': 0.0003, 'accuracy': 0.00175, 'steps': 40000, 'params': 634816, 'seconds': 1134.1, 'seed': 0}
+{'task': 'mqar', 'arch': 'transformer', 'd_model': 128, 'seq_len': 128, 'num_kv_or_tokens': 16, 'lr': 0.0003, 'accuracy': 0.2063125, 'steps': 40000, 'params': 1475200, 'seconds': 1445.6, 'seed': 0}
+{'task': 'mqar', 'arch': 'mamba', 'd_model': 128, 'seq_len': 128, 'num_kv_or_tokens': 16, 'lr': 0.0003, 'accuracy': 0.197125, 'steps': 40000, 'params': 1515136, 'seconds': 2222.0, 'seed': 0}
+{'task': 'mqar', 'arch': 'mamba_lti', 'd_model': 128, 'seq_len': 128, 'num_kv_or_tokens': 16, 'lr': 0.0003, 'accuracy': 0.028625, 'steps': 40000, 'params': 1466112, 'seconds': 1987.3, 'seed': 0}
+{'task': 'mqar', 'arch': 'transformer', 'd_model': 256, 'seq_len': 128, 'num_kv_or_tokens': 16, 'lr': 0.0003, 'accuracy': 0.2185, 'steps': 40000, 'params': 3704064, 'seconds': 2853.5, 'seed': 0}
+{'task': 'mqar', 'arch': 'mamba', 'd_model': 256, 'seq_len': 128, 'num_kv_or_tokens': 16, 'lr': 0.0003, 'accuracy': 0.211375, 'steps': 40000, 'params': 3849472, 'seconds': 4404.2, 'seed': 0}
+{'task': 'mqar', 'arch': 'mamba_lti', 'd_model': 256, 'seq_len': 128, 'num_kv_or_tokens': 16, 'lr': 0.0003, 'accuracy': 0.12275, 'steps': 40000, 'params': 3718528, 'seconds': 3976.3, 'seed': 0}

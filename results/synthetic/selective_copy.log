@@ -1,0 +1,26 @@
+
+[Mon Nov  9 03:49:58 2026] $ /usr/bin/python3 -m afml.eval.synthetic --task selective_copy --archs transformer mamba mamba_lti --d-models 64 --seq-lens 64 128 256 512 --out /kaggle/working/afml/results/synthetic/selective_copy.csv
+{'task': 'selective_copy', 'arch': 'transformer', 'd_model': 64, 'seq_len': 64, 'num_kv_or_tokens': 16, 'lr': 0.001, 'accuracy': 0.933875, 'steps': 4000, 'params': 107968, 'seconds': 40.3, 'seed': 0}
+{'task': 'selective_copy', 'arch': 'transformer', 'd_model': 64, 'seq_len': 64, 'num_kv_or_tokens': 16, 'lr': 0.003, 'accuracy': 0.9395625, 'steps': 4000, 'params': 107968, 'seconds': 37.1, 'seed': 0}
+{'task': 'selective_copy', 'arch': 'mamba', 'd_model': 64, 'seq_len': 64, 'num_kv_or_tokens': 16, 'lr': 0.001, 'accuracy': 0.1238125, 'steps': 4000, 'params': 132032, 'seconds': 60.3, 'seed': 0}
+{'task': 'selective_copy', 'arch': 'mamba', 'd_model': 64, 'seq_len': 64, 'num_kv_or_tokens': 16, 'lr': 0.003, 'accuracy': 0.130125, 'steps': 4000, 'params': 132032, 'seconds': 57.7, 'seed': 0}
+{'task': 'selective_copy', 'arch': 'mamba_lti', 'd_model': 64, 'seq_len': 64, 'num_kv_or_tokens': 16, 'lr': 0.001, 'accuracy': 0.0629375, 'steps': 4000, 'params': 111680, 'seconds': 51.1, 'seed': 0}
+{'task': 'selective_copy', 'arch': 'mamba_lti', 'd_model': 64, 'seq_len': 64, 'num_kv_or_tokens': 16, 'lr': 0.003, 'accuracy': 0.125125, 'steps': 4000, 'params': 111680, 'seconds': 50.2, 'seed': 0}
+{'task': 'selective_copy', 'arch': 'transformer', 'd_model': 64, 'seq_len': 128, 'num_kv_or_tokens': 16, 'lr': 0.001, 'accuracy': 0.79225, 'steps': 4000, 'params': 107968, 'seconds': 38.0, 'seed': 0}
+{'task': 'selective_copy', 'arch': 'transformer', 'd_model': 64, 'seq_len': 128, 'num_kv_or_tokens': 16, 'lr': 0.003, 'accuracy': 0.8649375, 'steps': 4000, 'params': 107968, 'seconds': 37.5, 'seed': 0}
+{'task': 'selective_copy', 'arch': 'mamba', 'd_model': 64, 'seq_len': 128, 'num_kv_or_tokens': 16, 'lr': 0.001, 'accuracy': 0.0986875, 'steps': 4000, 'params': 132032, 'seconds': 65.5, 'seed': 0}
+{'task': 'selective_copy', 'arch': 'mamba', 'd_model': 64, 'seq_len': 128, 'num_kv_or_tokens': 16, 'lr': 0.003, 'accuracy': 0.12725, 'steps': 4000, 'params': 132032, 'seconds': 66.5, 'seed': 0}
+{'task': 'selective_copy', 'arch': 'mamba_lti', 'd_model': 64, 'seq_len': 128, 'num_kv_or_tokens': 16, 'lr': 0.001, 'accuracy': 0.066375, 'steps': 4000, 'params': 111680, 'seconds': 55.5, 'seed': 0}
+{'task': 'selective_copy', 'arch': 'mamba_lti', 'd_model': 64, 'seq_len': 128, 'num_kv_or_tokens': 16, 'lr': 0.003, 'accuracy': 0.1165625, 'steps': 4000, 'params': 111680, 'seconds': 56.8, 'seed': 0}
+{'task': 'selective_copy', 'arch': 'transformer', 'd_model': 64, 'seq_len': 256, 'num_kv_or_tokens': 16, 'lr': 0.001, 'accuracy': 0.7796875, 'steps': 4000, 'params': 107968, 'seconds': 59.1, 'seed': 0}
+{'task': 'selective_copy', 'arch': 'transformer', 'd_model': 64, 'seq_len': 256, 'num_kv_or_tokens': 16, 'lr': 0.003, 'accuracy': 0.827125, 'steps': 4000, 'params': 107968, 'seconds': 59.1, 'seed': 0}
+{'task': 'selective_copy', 'arch': 'mamba', 'd_model': 64, 'seq_len': 256, 'num_kv_or_tokens': 16, 'lr': 0.001, 'accuracy': 0.0910625, 'steps': 4000, 'params': 132032, 'seconds': 132.4, 'seed': 0}
+{'task': 'selective_copy', 'arch': 'mamba', 'd_model': 64, 'seq_len': 256, 'num_kv_or_tokens': 16, 'lr': 0.003, 'accuracy': 0.1205, 'steps': 4000, 'params': 132032, 'seconds': 132.3, 'seed': 0}
+{'task': 'selective_copy', 'arch': 'mamba_lti', 'd_model': 64, 'seq_len': 256, 'num_kv_or_tokens': 16, 'lr': 0.001, 'accuracy': 0.06225, 'steps': 4000, 'params': 111680, 'seconds': 109.2, 'seed': 0}
+{'task': 'selective_copy', 'arch': 'mamba_lti', 'd_model': 64, 'seq_len': 256, 'num_kv_or_tokens': 16, 'lr': 0.003, 'accuracy': 0.0629375, 'steps': 4000, 'params': 111680, 'seconds': 109.6, 'seed': 0}
+{'task': 'selective_copy', 'arch': 'transformer', 'd_model': 64, 'seq_len': 512, 'num_kv_or_tokens': 16, 'lr': 0.001, 'accuracy': 0.60375, 'steps': 4000, 'params': 107968, 'seconds': 130.9, 'seed': 0}
+{'task': 'selective_copy', 'arch': 'transformer', 'd_model': 64, 'seq_len': 512, 'num_kv_or_tokens': 16, 'lr': 0.003, 'accuracy': 0.80225, 'steps': 4000, 'params': 107968, 'seconds': 130.6, 'seed': 0}
+{'task': 'selective_copy', 'arch': 'mamba', 'd_model': 64, 'seq_len': 512, 'num_kv_or_tokens': 16, 'lr': 0.001, 'accuracy': 0.0660625, 'steps': 4000, 'params': 132032, 'seconds': 264.0, 'seed': 0}
+{'task': 'selective_copy', 'arch': 'mamba', 'd_model': 64, 'seq_len': 512, 'num_kv_or_tokens': 16, 'lr': 0.003, 'accuracy': 0.1234375, 'steps': 4000, 'params': 132032, 'seconds': 265.7, 'seed': 0}
+{'task': 'selective_copy', 'arch': 'mamba_lti', 'd_model': 64, 'seq_len': 512, 'num_kv_or_tokens': 16, 'lr': 0.001, 'accuracy': 0.0653125, 'steps': 4000, 'params': 111680, 'seconds': 219.9, 'seed': 0}
+{'task': 'selective_copy', 'arch': 'mamba_lti', 'd_model': 64, 'seq_len': 512, 'num_kv_or_tokens': 16, 'lr': 0.003, 'accuracy': 0.0845, 'steps': 4000, 'params': 111680, 'seconds': 220.2, 'seed': 0}

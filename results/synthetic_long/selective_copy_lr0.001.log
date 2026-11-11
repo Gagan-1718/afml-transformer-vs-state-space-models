@@ -1,0 +1,8 @@
+
+[Mon Nov  9 18:05:08 2026] $ /usr/bin/python3 -m afml.eval.synthetic --task selective_copy --archs transformer mamba mamba_lti --lrs 0.001 --d-models 64 --seq-lens 64 256 --steps 40000 --eval-every 1000 --out /kaggle/working/afml/results/synthetic_long/selective_copy_lr0.001.csv --curve /kaggle/working/afml/results/synthetic_long/selective_copy_lr0.001_curve.csv
+{'task': 'selective_copy', 'arch': 'transformer', 'd_model': 64, 'seq_len': 64, 'num_kv_or_tokens': 16, 'lr': 0.001, 'accuracy': 0.9964375, 'steps': 32000, 'params': 107968, 'seconds': 321.5, 'seed': 0}
+{'task': 'selective_copy', 'arch': 'mamba', 'd_model': 64, 'seq_len': 64, 'num_kv_or_tokens': 16, 'lr': 0.001, 'accuracy': 0.9966875, 'steps': 16000, 'params': 132032, 'seconds': 238.7, 'seed': 0}
+{'task': 'selective_copy', 'arch': 'mamba_lti', 'd_model': 64, 'seq_len': 64, 'num_kv_or_tokens': 16, 'lr': 0.001, 'accuracy': 0.542125, 'steps': 40000, 'params': 111680, 'seconds': 544.7, 'seed': 0}
+{'task': 'selective_copy', 'arch': 'transformer', 'd_model': 64, 'seq_len': 256, 'num_kv_or_tokens': 16, 'lr': 0.001, 'accuracy': 0.91875, 'steps': 40000, 'params': 107968, 'seconds': 577.0, 'seed': 0}
+{'task': 'selective_copy', 'arch': 'mamba', 'd_model': 64, 'seq_len': 256, 'num_kv_or_tokens': 16, 'lr': 0.001, 'accuracy': 0.9958125, 'steps': 26000, 'params': 132032, 'seconds': 830.9, 'seed': 0}
+{'task': 'selective_copy', 'arch': 'mamba_lti', 'd_model': 64, 'seq_len': 256, 'num_kv_or_tokens': 16, 'lr': 0.001, 'accuracy': 0.129, 'steps': 40000, 'params': 111680, 'seconds': 1055.2, 'seed': 0}

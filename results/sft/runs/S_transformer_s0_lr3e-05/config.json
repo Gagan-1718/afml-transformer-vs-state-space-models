@@ -1,0 +1,41 @@
+{
+  "init": "/kaggle/working/afml/runs/S_transformer_s0",
+  "sft_data": "/kaggle/working/afml/sft_alpaca",
+  "sft": {
+    "seed": 0,
+    "lr": 3e-05,
+    "epochs": 2,
+    "micro_batch": 8,
+    "grad_accum": 8,
+    "min_lr_ratio": 0.1,
+    "warmup_frac": 0.03,
+    "warmup_steps": null,
+    "weight_decay": 0.0,
+    "betas": [
+      0.9,
+      0.95
+    ],
+    "grad_clip": 1.0,
+    "precision": "auto",
+    "eval_every": 100,
+    "log_every": 10
+  },
+  "model": {
+    "arch": "transformer",
+    "vocab_size": 16384,
+    "d_model": 512,
+    "n_layers": 12,
+    "max_seq_len": 1024,
+    "n_heads": 8,
+    "mlp_multiple_of": 64,
+    "rope_base": 10000.0,
+    "d_state": 16,
+    "d_conv": 4,
+    "expand": 2,
+    "d_inner": null,
+    "dt_rank": null,
+    "selective": true,
+    "scan": "auto",
+    "chunk_size": 64
+  }
+}
