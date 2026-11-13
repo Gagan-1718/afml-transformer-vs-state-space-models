@@ -25,8 +25,8 @@ does not depend on the input.
 | --- | --- | --- |
 | Code, configs, notebook, results | this repository | complete |
 | Links to the datasets | [deliverables/datasets.md](deliverables/datasets.md) | complete |
-| Paper (IEEE format, PDF) | [deliverables/paper/](deliverables/paper/) | LaTeX draft; results text in progress |
-| Slide deck (PDF) | [deliverables/slides/](deliverables/slides/) | in progress |
+| Paper (IEEE format, PDF) | [deliverables/paper/](deliverables/paper/) | full LaTeX draft (all sections); final edits, then PDF |
+| Slide deck (PDF) | [deliverables/slides/](deliverables/slides/) | filled on the course template; final edits, then PDF |
 | Presentation video (at most 7 minutes) | [deliverables/video/](deliverables/video/) | to be recorded |
 
 ## Results at a glance
@@ -81,6 +81,14 @@ Mamba numbers for decoding and training use the official `mamba-ssm` kernel (the
    2.993 to 2.201 (Transformer) and from 2.975 to 2.163 (Mamba). ROUGE-L on 100 test prompts rose from 0.027
    to 0.212 and from 0.000 to 0.222. After fine-tuning, 54–55% of answers end on their own with an
    end-of-text token; before, none did.
+8. **Same training time instead of same tokens.** On a free T4, the Transformer runs finished their 340M
+   tokens in 4.0–4.4 hours (mean 4.16 h), at a mean validation loss of 3.550. At 4.16 hours the Mamba runs
+   had seen 157M tokens and were at 3.770–3.792; they needed 6.70–7.25 hours to reach 3.550. So per token
+   Mamba is better, but per hour of free-GPU time the Transformer is ahead. Two caveats: Mamba's 4-hour value
+   comes from the middle of a longer run, before its learning rate decayed, so a Mamba run planned for 4 hours
+   would do somewhat better; and the result depends on this GPU and these kernels (fp16, `mamba-ssm` `cuda`
+   scan). See [fig9](results/figures/fig9_time_budget.png) and
+   [table_time_budget.md](results/figures/table_time_budget.md).
 
 More figures: selective copying ([fig2](results/figures/fig2_selective_copy.png)), MQAR
 ([fig3](results/figures/fig3_mqar.png)), recall split ([fig4](results/figures/fig4_recall_split.png)),

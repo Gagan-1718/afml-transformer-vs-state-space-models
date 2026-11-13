@@ -4,6 +4,7 @@
 
 Inputs (any missing one is skipped) and outputs:
   {S,M,L}/runs/<run>/metrics.csv + summary.json        fig1_training_curves.png        E1
+  S/runs/<run>/metrics.csv (elapsed_s) + summary.json   fig9_time_budget.png, table_time_budget.md  E1 by time
   synthetic_long/selective_copy_lr*{,_curve}.csv        fig2_selective_copy.png         E2
   synthetic_long/mqar_lr*{,_curve}.csv                  fig3_mqar.png                   E3
   synthetic_long/*.csv                                  table_synthetic_long.md         E2, E3
@@ -368,6 +369,91 @@ def table_synthetic_long(res, out):
         (out / "table_synthetic_long.md").write_text("\n".join(lines), encoding="utf-8")
 
 
+def read_time_curves(res, scale="S"):
+    """Per run: (arch, summary, [(training hours, tokens, val loss), ...]). Hours exclude evaluation time."""
+    runs = []
+    if not (res / scale / "runs").exists():
+        return runs
+    for run in sorted((res / scale / "runs").iterdir()):
+        if not (run / "summary.json").exists():
+            continue
+        summ = json.loads((run / "summary.json").read_text())
+        pts = [(0.0, 0.0, num(r["val_loss"])) if num(r["tokens"]) == 0 else
+               (num(r["elapsed_s"]) / 3600, num(r["tokens"]), num(r["val_loss"]))
+               for r in read_csv(run / "metrics.csv") if r.get("val_loss")]
+        runs.append((run.name, arch_of(summ), summ, sorted(pts)))
+    return runs
+
+
+def hours_to_reach(pts, level):
+    """Training hours at which the val loss first reaches `level`, linearly interpolated between evaluations."""
+    for (h0, _, v0), (h1, _, v1) in zip(pts, pts[1:]):
+        if v1 <= level < v0:
+            return h0 + (h1 - h0) * (v0 - level) / (v0 - v1)
+    return None
+
+
+def time_budget(runs):
+    tf = [r for r in runs if r[1] == "transformer"]
+    if not tf:
+        return None, None
+    t_budget = sum(r[2]["train_seconds"] for r in tf) / len(tf) / 3600
+    l_target = sum(r[2]["best_val_loss"] for r in tf) / len(tf)
+    return t_budget, l_target
+
+
+def fig_time_budget(res, out):
+    runs = read_time_curves(res)
+    t_budget, l_target = time_budget(runs)
+    if t_budget is None:
+        return
+    fig, ax = plt.subplots(figsize=(7.5, 3.8))
+    counts = defaultdict(int)
+    for _, arch, _, _ in runs:
+        counts[arch] += 1
+    for name, arch, summ, pts in sorted(runs, key=lambda r: model_order(r[1])):
+        pts = [p for p in pts if p[0] > 0]
+        ax.plot([h for h, _, _ in pts], [v for _, _, v in pts], color=COLORS[arch], lw=1.6)
+        ax.plot(pts[-1][0], pts[-1][2], "o", ms=5, color=COLORS[arch], mec="white", mew=1.5)
+    ax.axvline(t_budget, color=MUTED, ls="--", lw=1)
+    ax.text(t_budget - 0.08, 4.47, f"Transformer runs end\n(mean {t_budget:.2f} h)", color=MUTED, fontsize=8,
+            va="top", ha="right")
+    ax.axhline(l_target, color=MUTED, ls=":", lw=1)
+    ax.text(4.75, l_target - 0.008, f"Transformer final: {l_target:.3f}",
+            color=MUTED, fontsize=8, ha="left", va="top")
+    ax.set(xlabel="Training time on one Tesla T4 (hours, evaluation excluded)", ylabel="Validation loss (nats/token)",
+           ylim=(3.45, 4.5), xlim=(0, 9.2))
+    handles = [Line2D([], [], color=COLORS[a], label=f"{NAMES[a]} ({counts[a]} seeds)") for a in COLORS if counts[a]]
+    ax.legend(handles=handles, fontsize=8, loc="upper right")
+    fig.suptitle("Same tokens, different time: every run sees 340M tokens (dot = end of run). Mamba uses the "
+                 "mamba-ssm kernel (cuda scan), fp16", x=0.01, y=1.0, ha="left", fontsize=9)
+    fig.savefig(out / "fig9_time_budget.png")
+    plt.close(fig)
+
+
+def table_time_budget(res, out):
+    runs = read_time_curves(res)
+    t_budget, l_target = time_budget(runs)
+    if t_budget is None:
+        return
+    lines = [f"Time budget T = {t_budget:.2f} h: the mean training time of the Transformer runs. Target loss "
+             f"{l_target:.4f}: the mean final validation loss of the Transformer runs. Hours are training time on "
+             "one Tesla T4 in fp16, evaluation excluded; Mamba uses the mamba-ssm kernel (`cuda` scan).", "",
+             "| Run | Model | Micro-batch | Training hours | Final val loss | Last evaluation within T: hours / "
+             "tokens / val loss | Hours to reach the target loss |", "|" + " --- |" * 7]
+    for name, arch, summ, pts in sorted(runs, key=lambda r: (model_order(r[1]), r[0])):
+        within = [p for p in pts if p[0] <= t_budget]
+        h, tok, v = within[-1]
+        reach = hours_to_reach(pts, l_target)
+        lines.append(f"| {name} | {NAMES[arch]} | {summ['train_config'].get('micro_batch', '')} | "
+                     f"{summ['train_seconds'] / 3600:.2f} | {summ['best_val_loss']:.4f} | "
+                     f"{h:.2f} h / {tok / 1e6:.0f}M / {v:.4f} | {f'{reach:.2f}' if reach else 'not reached'} |")
+    lines += ["", "Caveat: a run's loss partway through is not what a run planned for that shorter budget would "
+              "reach, because its learning rate has not decayed yet. The middle column therefore understates "
+              "Mamba at a 4-hour budget."]
+    (out / "table_time_budget.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
 def fig_bench(res, out):
     p = res / "bench" / "bench.csv"
     if not p.exists():
@@ -502,7 +588,7 @@ def table_sft(res, out):
     (out / "table_sft.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
-FIGURES = (fig_training_curves, table_main, fig_selective_copy_long, fig_mqar_long, table_synthetic_long,
+FIGURES = (fig_training_curves, table_main, fig_time_budget, table_time_budget, fig_selective_copy_long, fig_mqar_long, table_synthetic_long,
            fig_recall_split, fig_long_context, fig_bench, fig_memory_horizon, fig_sft, table_sft, fig_synthetic)
 
 

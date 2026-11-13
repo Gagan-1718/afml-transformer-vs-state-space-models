@@ -1,7 +1,7 @@
 % IEEE conference paper for the AFML course project.
 % Overleaf: upload main.tex plus a figures/ folder holding a copy of results/figures/*.png, and compile
 % with pdfLaTeX. Compiled inside the repository, the figures are found in ../../results/figures/.
-% Red [TODO: ...] marks are places that still need a number from results/. Nothing here is estimated.
+% Every number comes from a file in results/; results/README.md says which. Nothing here is estimated.
 \documentclass[conference]{IEEEtran}
 \usepackage{amsmath,amssymb}
 \usepackage{graphicx}
@@ -39,11 +39,16 @@ and nothing else. We measure test loss, associative recall (the synthetic MQAR t
 loss split into recall-hit and other tokens), loss beyond the 1,024-token training length on PG-19
 books, and inference latency and memory with cached decoding. Finally, we instruction-tune both models
 on the same instruction data and compare their answers before and after.
-\todo{main quality result with numbers from Table V.}
-\todo{recall and long-context result.}
-\todo{efficiency result, naming the scan backend.}
-\todo{instruction fine-tuning result from results/sft/test.csv.}
-All training ran on free Kaggle T4 GPUs; the code, configurations and per-run logs are public.
+Mamba reaches a test loss of 3.484 against 3.531 for the Transformer (perplexity 32.6 against 34.1), and
+every Mamba seed beats every Transformer seed. Removing selectivity costs 0.176 nats. The Transformer is
+better on the 16.8\% of test tokens whose answer can be copied from the context (1.39 against 1.76);
+Mamba is better on all other tokens, and its loss on PG-19 books rises only from 3.40 to 3.88 between
+the training length and 16K tokens, where the Transformer's rises to 5.62. With the official
+\texttt{mamba-ssm} kernel, Mamba's decoding memory stays at 116 MiB at batch 8 and 32K tokens, where
+the Transformer's reaches 6,260 MiB; but on a T4 the same Mamba run takes twice as long to train, so
+at equal training time the Transformer is ahead. After instruction tuning, both models answer simple
+questions and their response loss differs by 0.04 nats. All training ran on free Kaggle T4 GPUs; the
+code, configurations and per-run logs are public.
 \end{abstract}
 
 \begin{IEEEkeywords}
@@ -151,7 +156,8 @@ projections the block has fewer parameters, so its $d_\text{inner}$ is matched s
 \subsection{Parameter matching}
 All models share the width (512), the vocabulary (16,384) and the tied embedding. The Mamba
 $d_\text{inner}$ is found by binary search so that non-embedding parameters are within 0.5\% of the
-Transformer's (Table~\ref{tab:params}). \todo{confirm the Mamba-LTI counts from the collected runs.}
+Transformer's (Table~\ref{tab:params}); the gaps are 0.22\% for Mamba and 0.20\% for Mamba-LTI. The
+counts in the table are read from the trained runs' summaries.
 
 \begin{table}[t]
 \centering
@@ -177,8 +183,10 @@ scan runs the parallel scan inside chunks of 64 tokens with activation checkpoin
 state between chunks, so it stores only the block inputs and one state per chunk. Unit tests check that
 every backend gives the same outputs and gradients as the reference. The scan always runs in fp32.
 Every speed number below names the backend (\texttt{cuda} or \texttt{chunked}), because a slow
-pure-PyTorch scan is a property of our implementation, not of the architecture.
-\todo{state which backend each main run used, from the collected summaries.}
+pure-PyTorch scan is a property of our implementation, not of the architecture. All Mamba and
+Mamba-LTI training runs and all fine-tuning runs used the \texttt{cuda} kernel, as recorded in each
+run's summary. The \texttt{chunked} scan was used on the GPU only in the smoke test and in the
+efficiency benchmark, where it is timed next to the kernel.
 
 % ---------------------------------------------------------------------------------------------------
 \section{Data and Training}
@@ -203,8 +211,9 @@ with an OpenAI model following Self-Instruct~\cite{wang2023selfinstruct}. We dro
 split the pairs by the hash of their text into test (2\%), validation (2\%) and training. Each example
 is written as \texttt{\#\#\# Instruction:}, the instruction, an optional \texttt{\#\#\# Input:} block,
 \texttt{\#\#\# Response:}, the response and the end-of-document token, and is tokenized with the
-pretraining tokenizer; examples longer than 1,025 tokens are dropped.
-\todo{split sizes from results/sft/data\_meta.json.}
+pretraining tokenizer; examples longer than 1,025 tokens are dropped. Of the 51,760 pairs, 4 are
+duplicates and 30 are too long. The splits hold 49,570 training, 1,081 validation and 1,075 test
+examples, on average 197 tokens each; the test split has 170,888 response tokens.
 
 \begin{table}[t]
 \centering
@@ -306,8 +315,10 @@ step (micro-batch 8, accumulation 8, right-padded and grouped by length), 2 epoc
 in fp32. Each model is fine-tuned at learning rates $3\times10^{-5}$, $10^{-4}$, $3\times10^{-4}$ and
 $10^{-3}$ (the last was added because both models were best at $3\times10^{-4}$, the edge of the first
 grid); the rate is chosen on validation response loss with the same tie rule as in pretraining, and the checkpoint
-with the lowest validation loss is kept.
-\todo{chosen rates, training time and scan backend from results/sft/lr\_sweep.csv.}
+with the lowest validation loss is kept. Both models were best at $3\times10^{-4}$. For Mamba,
+$10^{-3}$ came within 0.01 of it (2.195 against 2.185 validation response loss), so the tie rule again
+picked the lower rate. Each fine-tuning run takes 1,550 steps: 14 to 15 minutes for the Transformer and
+39 to 41 minutes for Mamba with the \texttt{cuda} kernel, on one T4.
 
 % ---------------------------------------------------------------------------------------------------
 \section{Evaluation Protocol}
@@ -318,12 +329,15 @@ The test split is scored once, with the checkpoint chosen on validation; nothing
 windows; mean and standard deviation over seeds.
 
 \textbf{E2, selectivity.} Mamba against Mamba-LTI on E1, and on selective copying~\cite{gu2023mamba}:
-16 tokens to copy among noise tokens, width 64, sequence lengths 64 to 512.
+16 data tokens placed at random among noise tokens must be output in order; width 64, sequence lengths
+64 and 256, learning rates $10^{-3}$ and $3\times10^{-3}$.
 
-\textbf{E3, associative recall.} MQAR with widths 64, 128 and 256 and lengths 64 to 512, with
-$0.25 \cdot L/2$ key-value pairs; 2 Transformer layers against 4 Mamba layers; 4,000 steps at batch
-64; accuracy on 1,000 held-out sequences. We report the better of two learning rates
-($10^{-3}$ and $3\times10^{-3}$) for each setting, which favours every model equally. On natural text,
+\textbf{E3, associative recall.} MQAR at length 128 with 16 key-value pairs, widths 64, 128 and 256,
+learning rates $3\times10^{-4}$, $10^{-3}$, $3\times10^{-3}$ and $10^{-2}$. Both synthetic tasks use
+2 Transformer layers against 4 Mamba layers, 40,000 steps at batch 64, one seed, accuracy on 1,000
+held-out sequences every 1,000 steps, and stop early at 99.5\%. We report every learning rate, so no
+model is favoured. A first round of 4,000-step runs over lengths 64 to 512 is kept in the repository;
+it was too short, and its conclusions differ from the long runs (Section~\ref{sec:recall}). On natural text,
 a test token is a \emph{recall hit} if the pair (previous token, token) already occurred earlier in
 the same window~\cite{arora2023zoology}; we report the loss on hits and on all other tokens separately.
 
@@ -352,8 +366,31 @@ hand-written prompts, shown as examples. One seed.
 \section{Results}
 
 \subsection{Language-modelling quality (E1)}
-\todo{Table V from results/figures/table\_main.md: test loss and perplexity, mean $\pm$ std over
-seeds. One paragraph: which model has the lower test loss, and is the gap larger than the seed spread?}
+Table~\ref{tab:main} gives the test results and Fig.~\ref{fig:curves} the validation curves. Mamba ends
+at a test loss of 3.484, the Transformer at 3.531, a gap of 0.046 nats (perplexity 32.6 against 34.1).
+The standard deviation over seeds is at most 0.006 for every model, and the worst Mamba seed (3.490) is
+below the best Transformer seed (3.525), so the gap is not seed noise. Mamba is ahead at every
+validation point after step 0: after 300 steps (39M tokens) it is at 4.53 to 4.56 against 4.89 to 4.93,
+and the gap narrows to about 0.04 by the end (final validation loss 3.509 against 3.550, means over
+seeds). Mamba-LTI ends at 3.661, 0.176 above Mamba and 0.130 above the
+Transformer.
+
+\begin{table}[t]
+\centering
+\caption{Test results on 5M FineWeb-Edu test tokens, mean $\pm$ standard deviation over seeds. Hit:
+recall-hit tokens (16.8\% of the test tokens); other: all remaining tokens. Perplexity is
+$\exp$ of the mean loss.}
+\label{tab:main}
+\begin{tabular}{@{}lrrrrr@{}}
+\toprule
+Model & Seeds & Test loss & Ppl & Hit loss & Other loss \\
+\midrule
+Transformer & 3 & $3.531 \pm 0.005$ & 34.14 & \textbf{1.387} & 3.964 \\
+Mamba & 3 & $\mathbf{3.484 \pm 0.005}$ & \textbf{32.59} & 1.762 & \textbf{3.832} \\
+Mamba-LTI & 2 & $3.661 \pm 0.006$ & 38.88 & 2.416 & 3.912 \\
+\bottomrule
+\end{tabular}
+\end{table}
 
 \begin{figure}[t]
 \centering
@@ -362,9 +399,61 @@ seeds. One paragraph: which model has the lower test loss, and is the gap larger
 \label{fig:curves}
 \end{figure}
 
+\textbf{Same time instead of same tokens.} The token budget is equal, but the training time is not
+(Fig.~\ref{fig:time}). The Transformer runs finished in 3.98 to 4.44 hours (mean 4.16 h) at a mean
+final validation loss of 3.550. Mamba, with the \texttt{cuda} kernel, needed 8.15 to 8.50 hours. At the
+4.16-hour mark the Mamba runs had seen 157M tokens and stood at 3.770 to 3.792; they reached 3.550 after
+6.70 to 7.25 hours. By our FLOP count Mamba does slightly less arithmetic per token
+($9.9\times10^{16}$ against $1.09\times10^{17}$ FLOPs for the whole run), so the time gap comes from
+how well the two implementations use the T4, not from the amount of work: the Transformer runs at
+21,000 to 24,000 tokens/s against 11,000 to 12,000 for Mamba, and Mamba's micro-batch had to be halved
+to 8 to fit in memory. Two caveats. A run's loss partway through is worse than what a run planned for
+that shorter budget would reach, because its learning rate has not yet decayed, so the 4-hour Mamba
+value is pessimistic. And the result is specific to this GPU, fp16 and this kernel. Still, for a
+student with a fixed number of free GPU hours, the Transformer gave the lower loss per hour, and Mamba
+the lower loss per token.
+
+\begin{figure}[t]
+\centering
+\figfile{fig9_time_budget.png}
+\caption{Validation loss against training time on one T4 (fp16; Mamba with the \texttt{mamba-ssm}
+kernel). Every run sees 340M tokens; the dot marks the end of each run.}
+\label{fig:time}
+\end{figure}
+
 \subsection{Selectivity (E2)}
-\todo{Mamba against Mamba-LTI test loss from Table V, and selective-copy accuracy from
-results/figures/table\_synthetic\_long.md.}
+Replacing the input-dependent $\Delta$, $B$ and $C$ by learned constants raises the test loss from 3.484
+to 3.661 (Table~\ref{tab:main}). The split in the last two columns shows where the loss goes: on
+recall-hit tokens Mamba-LTI is 0.65 nats worse than Mamba, on all other tokens only 0.08. On the other
+tokens Mamba-LTI (3.912) is even slightly better than the Transformer (3.964); almost its whole deficit
+is on tokens that must be copied from the context.
+
+Selective copying makes the same point directly (Fig.~\ref{fig:copy}, Table~\ref{tab:copy}). Mamba
+reaches 99\% at both lengths and both learning rates, within 9,000 to 26,000 steps. Mamba-LTI reaches
+99\% only at $3\times10^{-3}$, after 28,000 to 29,000 steps; at $10^{-3}$ it stops at 54.2\% (length 64)
+and 12.9\% (length 256) after 40,000 steps. The Transformer solves length 64 but stops at 91.9\% to
+93.3\% at length 256. So an LTI model can learn the task, but in our runs it needed a higher learning
+rate and two to three times as many steps as the selective model.
+
+\begin{table}[t]
+\centering
+\caption{Selective copying, best held-out accuracy in 40,000 steps (one seed), and the first step at
+which accuracy reached 99\%.}
+\label{tab:copy}
+\begin{tabular}{@{}llrrrr@{}}
+\toprule
+& & \multicolumn{2}{c}{Length 64} & \multicolumn{2}{c}{Length 256} \\
+Model & LR & Acc. & Step & Acc. & Step \\
+\midrule
+Transformer & $10^{-3}$ & 99.6\% & 31k & 91.9\% & -- \\
+Transformer & $3\times10^{-3}$ & 99.7\% & 10k & 93.3\% & -- \\
+Mamba & $10^{-3}$ & 99.7\% & 15k & 99.6\% & 26k \\
+Mamba & $3\times10^{-3}$ & 99.7\% & 9k & 99.6\% & 13k \\
+Mamba-LTI & $10^{-3}$ & 54.2\% & -- & 12.9\% & -- \\
+Mamba-LTI & $3\times10^{-3}$ & 99.5\% & 29k & 99.7\% & 28k \\
+\bottomrule
+\end{tabular}
+\end{table}
 
 \begin{figure}[t]
 \centering
@@ -375,8 +464,57 @@ results/figures/table\_synthetic\_long.md.}
 \end{figure}
 
 \subsection{Associative recall (E3)}
-\todo{from results/figures/table\_synthetic\_long.md and results/S/perplexity.csv: which models solve
-MQAR at each width, and whether Mamba's gap to the Transformer is larger on recall-hit tokens.}
+\label{sec:recall}
+On natural text the picture reverses (Fig.~\ref{fig:recall}). On the 841,199 recall-hit tokens the
+Transformer's loss is 1.387 against Mamba's 1.762, a gap of 0.375 nats in the Transformer's favour,
+consistent across seeds (1.36 to 1.42 against 1.75 to 1.77). On the other 4,157,969 tokens Mamba leads
+by 0.13 (3.832 against 3.964). The hit tokens are 16.8\% of the test set, so the two parts combine to
+Mamba's overall lead of 0.046. In other words, the Transformer's advantage is concentrated on tokens it
+can look up, and Mamba's advantage is spread over everything else.
+
+On MQAR (Fig.~\ref{fig:mqar}, Table~\ref{tab:mqar}), no model solved width 64 within 40,000 steps; the
+best is Mamba at 19.6\%. At widths 128 and 256 both the Transformer and Mamba reached 99.5\% or more,
+each at exactly one of the four learning rates: the Transformer at $10^{-3}$ (width 128, step 24,000)
+and $10^{-2}$ (width 256, step 17,000), Mamba at $10^{-2}$ (width 128, step 29,000) and
+$3\times10^{-3}$ (width 256, step 18,000). Mamba-LTI never passed 20.6\%. Of the 32 runs that failed, 20 peak between 18\% and
+22\%. Each key is queried once and its value follows the query, so a model that guesses
+uniformly among the values not yet asked would score $(1 + 1/2 + \dots + 1/16)/16 = 0.211$; we read the
+plateau that way but did not test it. At this size and training length we therefore cannot say that
+either architecture is better at MQAR; the result is that both can solve it, LTI cannot, and that the
+outcome depends strongly on the learning rate.
+
+The earlier 4,000-step runs told a different story. On selective copying the Transformer reached
+60\% to 94\% while both Mamba models stayed at 6\% to 13\%, and on MQAR at length 128 the Transformer
+reached 21\% against at most 9\% for Mamba. With ten times more steps, Mamba caught up on MQAR and
+overtook the Transformer on selective copying at length 256. We mention this because a short synthetic
+run can point the wrong way.
+
+\begin{table}[t]
+\centering
+\caption{MQAR at length 128 with 16 pairs: best held-out accuracy in 40,000 steps (one seed). Bold:
+solved (at least 99.5\%).}
+\label{tab:mqar}
+\begin{tabular}{@{}llrrr@{}}
+\toprule
+Model & LR & Width 64 & Width 128 & Width 256 \\
+\midrule
+Transformer & $3\times10^{-4}$ & 17.8\% & 20.6\% & 21.9\% \\
+Transformer & $10^{-3}$ & 18.1\% & \textbf{99.5\%} & 21.9\% \\
+Transformer & $3\times10^{-3}$ & 3.1\% & 5.7\% & 21.8\% \\
+Transformer & $10^{-2}$ & 18.1\% & 5.4\% & \textbf{99.6\%} \\
+\midrule
+Mamba & $3\times10^{-4}$ & 9.9\% & 19.7\% & 21.1\% \\
+Mamba & $10^{-3}$ & 18.6\% & 19.9\% & 21.1\% \\
+Mamba & $3\times10^{-3}$ & 19.6\% & 21.3\% & \textbf{99.5\%} \\
+Mamba & $10^{-2}$ & 16.0\% & \textbf{99.6\%} & 20.2\% \\
+\midrule
+Mamba-LTI & $3\times10^{-4}$ & 0.2\% & 2.9\% & 12.3\% \\
+Mamba-LTI & $10^{-3}$ & 15.5\% & 15.3\% & 18.3\% \\
+Mamba-LTI & $3\times10^{-3}$ & 19.2\% & 16.6\% & 20.6\% \\
+Mamba-LTI & $10^{-2}$ & 18.2\% & 16.9\% & 20.4\% \\
+\bottomrule
+\end{tabular}
+\end{table}
 
 \begin{figure*}[t]
 \centering
@@ -394,7 +532,15 @@ learning rates per model and width, one seed. The dotted line is 0.21.}
 \end{figure}
 
 \subsection{Length extrapolation (E4)}
-\todo{from results/S/long\_context.csv: what happens to each model's loss past 1,024 tokens.}
+Fig.~\ref{fig:long} shows the loss by position on the 50 PG-19 books, for the seed-0 models. Inside the
+training length the two main models are close, and the Transformer is slightly better: 3.291 against
+3.351 at positions 256 to 512, and 3.396 against 3.399 at 512 to 1,024. Past 1,024 tokens, where RoPE
+sees positions it was never trained on, the Transformer's loss jumps to 4.237 (1K to 2K), 5.260 (2K to
+4K) and 5.619 (8K to 16K). Mamba's loss also rises, to 3.589, 3.809 and 3.879 in the same bins, so it
+does not keep improving with more context either, but it degrades by 0.48 nats where the Transformer
+degrades by 2.22. Mamba-LTI behaves like Mamba (3.702 at 512 to 1,024, 4.102 at 8K to 16K), which is
+expected: a recurrence has no position index to go out of range. We did not try a RoPE scaling method,
+which might reduce the Transformer's rise.
 
 \begin{figure}[t]
 \centering
@@ -404,8 +550,51 @@ learning rates per model and width, one seed. The dotted line is 0.21.}
 \end{figure}
 
 \subsection{Inference efficiency (E5)}
-\todo{from results/bench/bench.csv, naming the backend in every sentence: where the Transformer runs out
-of memory, and how decode latency grows with length for each model.}
+Fig.~\ref{fig:bench} and Table~\ref{tab:bench} give the benchmark on one T4 in fp16. No configuration
+ran out of memory up to 32,768 tokens at batch 8; the T4 has 16 GB and the models are small. The
+differences are in how the cost grows.
+
+\textbf{Decoding memory.} The Transformer's KV cache holds $2Ld$ fp16 values per layer, 6 GiB at batch
+8 and 32K tokens, and its measured peak decoding memory grows from 210.6 MiB at 512 tokens to
+6,260.5 MiB at 32K. Mamba's recurrent state is 7.1 MiB at batch 8 whatever the length, and its peak
+stays between 114.0 and 116.0 MiB (the weights alone are 89.4 MiB). The \texttt{chunked} backend
+gives the same decoding memory and latency as the \texttt{cuda} kernel.
+
+\textbf{Decoding latency.} Mamba with the \texttt{cuda} kernel takes 21.9 to 23.9 ms per new token at
+every length and both batch sizes. The Transformer starts faster, 9.5 to 9.9 ms at 512 tokens, and
+slows down as the cache grows: 15.1 ms (batch 1) and 24.6 ms (batch 8) at 16K, 28.1 and 46.5 ms at
+32K. The two cross between 8K and 16K tokens at batch 8 and between 16K and 32K at batch 1. At a
+1,024-token context, the length we trained at, the Transformer decodes 1.7 to 1.8 times faster. We did
+not profile why Mamba's step is slower at short contexts; it has twice as many layers to step through.
+
+\textbf{Prefill.} With the \texttt{cuda} kernel, Mamba's prefill throughput at batch 1 stays at 41,000
+to 42,000 tokens/s from 1K to 16K tokens and is 31,600 at 32K, while the Transformer's falls from
+105,000 tokens/s at 1K to 21,000 at 32K as the $O(L^2)$ attention takes over. The Transformer prefills
+faster up to 8K tokens; at 32K and batch 1, Mamba takes 1.04 s and the Transformer 1.53 s. Peak
+prefill memory grows with length for both, 910 MiB against 1,319 MiB at 32K and batch 1. Our \texttt{chunked} scan gives the same
+outputs but prefills at about 1,550 tokens/s, 20 times slower than the kernel (21.2 s at 32K, batch 1),
+and its batch-8 points above 4K tokens were skipped under the 20-second rule. The architecture's
+advantage at long context is therefore real with a good kernel and absent without one.
+
+\begin{table}[t]
+\centering
+\caption{Decoding on one T4, fp16, batch 8: per-token latency and peak memory. Mamba with the
+\texttt{cuda} kernel.}
+\label{tab:bench}
+\begin{tabular}{@{}rrrrr@{}}
+\toprule
+& \multicolumn{2}{c}{Transformer} & \multicolumn{2}{c}{Mamba (\texttt{cuda})} \\
+Context & ms/token & MiB & ms/token & MiB \\
+\midrule
+512 & 9.9 & 210.6 & 22.5 & 114.0 \\
+1,024 & 12.9 & 306.6 & 23.1 & 114.0 \\
+4,096 & 12.9 & 882.8 & 23.3 & 114.2 \\
+8,192 & 13.3 & 1,651.0 & 23.2 & 114.5 \\
+16,384 & 24.6 & 3,187.5 & 23.5 & 115.0 \\
+32,768 & 46.5 & 6,260.5 & 23.9 & 116.0 \\
+\bottomrule
+\end{tabular}
+\end{table}
 
 \begin{figure*}[t]
 \centering
@@ -416,8 +605,20 @@ decoding memory against length. Line style shows the Mamba scan backend.}
 \end{figure*}
 
 \subsection{What selectivity does (E6)}
-\todo{from results/analysis/S/delta\_stats.json: which tokens get a large $\Delta$, and how the spread of
-memory horizons compares with the training length.}
+Fig.~\ref{fig:horizon} shows, for each layer of the seed-0 Mamba, the median memory horizon
+$1/(\Delta_t|A|)$ over the state channels and the 256 analysed tokens. In 22 of the 24 layers the
+median horizon is 3 to 31 tokens; the first layer is the shortest (3 tokens, mean $\Delta$ of 0.061),
+and the mean $\Delta$ per layer otherwise lies between 0.017 and 0.049. Two layers behave differently:
+layer 14 has a median horizon of 80 tokens and layer 18 of 225 tokens, with mean $\Delta$ of 0.0046
+and 0.0012. Most of the network therefore summarises the last few dozen tokens, and a small number of
+layers carry information across a few hundred, still well under the 1,024-token training window. This
+fits E4: if most channels forget within a few hundred tokens, extra context far back cannot help, and
+Mamba's loss indeed stops improving past 1K without breaking down. These are medians over 256 tokens
+of one model, so we read them as a description, not a proof. The
+per-token $\Delta$ heatmap and the Transformer's attention maps are in the repository
+(\texttt{results/analysis/S/}); we do not report per-token statistics because the analysed window
+contains no end-of-document token, so the question of which tokens trigger a reset cannot be answered
+from it.
 
 \begin{figure}[t]
 \centering
@@ -428,10 +629,43 @@ on 256 test tokens. Layers are numbered from 0.}
 \end{figure}
 
 \subsection{Instruction fine-tuning (E7)}
-\todo{table from results/sft/test.csv: test response loss, ROUGE-L and end-of-document rate for each model
-before and after fine-tuning. One paragraph: does fine-tuning lower the response loss for both models, and
-is the gap after fine-tuning similar to the pretraining gap? Two or three answers per model copied exactly
-from results/sft/samples.md, saying plainly where they are wrong or repetitive.}
+Table~\ref{tab:sft} and Fig.~\ref{fig:sft} compare the seed-0 models before and after fine-tuning.
+Fine-tuning lowers the test response loss from 2.993 to 2.201 for the Transformer and from 2.975 to
+2.163 for Mamba. The gap between the two models is 0.018 before and 0.038 after, in the same direction as
+in pretraining (0.046 on the full test split). ROUGE-L on 100 test prompts rises from 0.027 to 0.212
+and from 0.000 to 0.222; before fine-tuning, no answer ended with the end-of-document token and every
+one ran to the 128-token limit, afterwards 54\% and 55\% stop on their own at 76 to 77 tokens on
+average. The pretrained Mamba scores exactly 0 because under greedy decoding it repeats the \texttt{\#}
+of the prompt template for all 128 tokens. The pretrained Transformer mostly repeats
+``\texttt{\#\#\# Response:}'' instead and scores 0.027.
+
+The sample answers (all in \texttt{results/sft/samples.md}) show what 47M parameters and 340M tokens
+buy. Both tuned models answer ``What is the capital of France?'' with ``The capital of France is
+Paris.'' Both start their photosynthesis answer with a correct first sentence and then add a muddled
+second one. Both fail at arithmetic: to
+``What is 12 plus 7?'' Mamba answers ``The 12 plus 7 is equal to 12.'' and the Transformer repeats
+``12 + 7 = 12 + 7 = \dots'' until cut off. Asked for three ways to save water, both loop on brooms and
+hoses (``use a broom instead of a hose to clean the air''). Asked to summarise a short text about the
+sun, the Transformer copies the first sentence of the text and Mamba writes ``plants use it to grow and
+grow''. We see no consistent difference in answer quality between the two architectures at this
+scale; both learned the answer format well and the facts poorly.
+
+\begin{table}[t]
+\centering
+\caption{Instruction fine-tuning, seed-0 models, test split (1,075 examples; ROUGE-L and stopping rate
+on the first 100 prompts, greedy decoding, at most 128 new tokens).}
+\label{tab:sft}
+\begin{tabular}{@{}llrrrr@{}}
+\toprule
+Model & Stage & Resp. loss & Ppl & ROUGE-L & Stops \\
+\midrule
+Transformer & pretrained & 2.993 & 19.95 & 0.027 & 0\% \\
+Transformer & tuned & 2.201 & 9.03 & 0.212 & 54\% \\
+Mamba & pretrained & 2.975 & 19.60 & 0.000 & 0\% \\
+Mamba & tuned & \textbf{2.163} & \textbf{8.70} & \textbf{0.222} & 55\% \\
+\bottomrule
+\end{tabular}
+\end{table}
 
 \begin{figure}[t]
 \centering
@@ -442,9 +676,43 @@ from results/sft/samples.md, saying plainly where they are wrong or repetitive.}
 
 % ---------------------------------------------------------------------------------------------------
 \section{Discussion}
-\todo{answer the research question in one paragraph; whether the recall results explain the quality
-gap; what the LTI ablation shows; the efficiency trade-off, separating architecture from
-implementation; whether instruction fine-tuning changes the comparison.}
+\textbf{The research question.} At 47M parameters, the same data and 340M tokens, the Mamba-style model
+reaches a lower test loss than the Transformer (3.484 against 3.531), and the difference is many times
+the seed spread. The Mamba paper~\cite{gu2023mamba} reports the same ordering from 130M parameters up;
+we find it holds at a third of that size and about 7 tokens per parameter. In inference, Mamba's
+decoding memory is flat in the context length and its per-token latency is flat, where the
+Transformer's both grow, but at the 1K context we trained at the Transformer decodes faster. Which
+model is ``more efficient'' depends on the context length one cares about.
+
+\textbf{Where the loss comes from.} The recall split explains the shape of the result. The Transformer
+is 0.37 nats better on the 16.8\% of tokens whose answer sits earlier in the window, which is the
+behaviour Zoology~\cite{arora2023zoology} predicts for attention. Mamba is 0.13 nats better on the
+other 83\%, and because those are five times as many, it wins overall. The two advantages are of
+different kinds: attention looks a value up exactly; the recurrence compresses the whole past into a
+state of 16 numbers per channel and apparently makes better use of it for ordinary next-token
+prediction at this size. MQAR does not separate the two: both solve it at widths 128 and 256, each at
+one learning rate, and neither at width 64.
+
+\textbf{What selectivity buys.} Mamba-LTI has the same size and training and the same recurrence,
+minus the dependence of $\Delta$, $B$ and $C$ on the input. It loses 0.65 nats on recall-hit tokens
+and only 0.08 elsewhere, needs a higher learning rate and two to three times more steps on selective
+copying,
+and never solves MQAR. So the input-dependent step is what lets the recurrence decide what to store
+and when to overwrite it; without it the model is a reasonable language model for local prediction and
+a poor one for copying. The memory horizons support this: most layers forget within a few dozen tokens,
+and two layers hold information for 80 and 225 tokens.
+
+\textbf{Architecture against implementation.} Two of our efficiency results depend on the kernel and
+not on the model. With the \texttt{cuda} kernel, Mamba prefills 32K tokens faster than the Transformer;
+with our \texttt{chunked} scan it is 14 times slower than the Transformer at the same length. And on
+the T4, Mamba's training runs took twice the Transformer's time for 9\% fewer FLOPs, so at equal GPU
+hours the Transformer gave the lower loss. The architecture's asymptotic advantages are real, but at
+47M parameters and on a 2018 GPU the Transformer's mature kernels decide the practical outcome.
+
+\textbf{Fine-tuning.} Instruction tuning does not change the comparison. Both models drop their
+response loss by about 0.8 nats, both learn the answer format, and the 0.04-nat gap after tuning has
+the same sign and about the same size as before. Their mistakes are also the same kind: repetition and
+wrong facts.
 
 \section{Limitations}
 \begin{itemize}
@@ -459,8 +727,13 @@ implementation; whether instruction fine-tuning changes the comparison.}
         the grid, and Mamba-LTI was not tuned separately.
   \item \textbf{One corpus, one tokenizer.} Perplexities compare only models that share this tokenizer
         and test set.
-  \item \textbf{Free hardware.} The T4 has no native bf16, so training used fp16. Efficiency results
-        describe these implementations on this GPU.
+  \item \textbf{Free hardware.} The T4 has no native bf16, so training used fp16. Efficiency and
+        training-time results describe these implementations on this GPU. The equal-time comparison
+        reads Mamba's loss from the middle of a longer run, which understates what a run planned for
+        four hours would reach.
+  \item \textbf{Synthetic tasks.} One seed, one sequence length for MQAR, and an outcome that flips
+        with the learning rate. The 4,000-step runs show how much the conclusion depends on training
+        length.
   \item \textbf{Proxies.} The recall-hit split counts repeated token pairs, which is only one form of
         recall. PG-19 books differ from the web training text, which affects both models.
   \item \textbf{Instruction fine-tuning.} One seed and one dataset, whose answers were written by
@@ -469,7 +742,16 @@ implementation; whether instruction fine-tuning changes the comparison.}
 \end{itemize}
 
 \section{Conclusion}
-\todo{three to four sentences, written last.}
+We trained a Transformer, a Mamba and a non-selective Mamba of about 47M parameters on the same 340M
+tokens of FineWeb-Edu, on free GPUs, and compared them on quality, recall, long context, inference cost
+and instruction following. Mamba reached the lower test loss (3.484 against 3.531) by being better on
+the 83\% of tokens that cannot be copied from the context, while the Transformer stayed better on the
+17\% that can. Removing selectivity cost 0.18 nats, and per token the damage was eight times larger
+on the copyable tokens (0.65 against 0.08). Mamba's
+decoding memory did not grow with context and its loss degraded far less past the training length,
+but the Transformer trained twice as fast on a T4, and without the official kernel Mamba's scan was
+20 times slower. Instruction tuning improved both models by the same amount and left the ordering
+unchanged.
 
 \section*{Code and Data}
 Code, configurations, the Kaggle notebook and the per-run logs:

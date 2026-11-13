@@ -18,6 +18,7 @@ python scripts/make_figures.py --results results --out results/figures
 | Speed check before training | `smoke/smoke_report.{md,json}` (tokens/s, memory, planning estimates) | – |
 | Learning-rate sweep | `S/lr_sweep.csv`, `S/best_lr.json`; `S/sweep_v1_failed_log.txt` is the first attempt (see notes) | – |
 | E1 quality | `S/runs/<run>/{config.json, metrics.csv, summary.json}` for all 8 runs; `S/perplexity.csv` (test loss) | `fig1_training_curves.png`, `table_main.md` |
+| E1 by training time | `S/runs/<run>/metrics.csv` (`elapsed_s` = training seconds, evaluation excluded) and `summary.json` | `fig9_time_budget.png`, `table_time_budget.md` |
 | E2 selectivity | `S/perplexity.csv` (Mamba-LTI rows); `synthetic_long/selective_copy_lr*.csv` and `*_curve.csv` | `fig2_selective_copy.png`, `table_synthetic_long.md` |
 | E3 recall | `S/perplexity.csv` (`hit_loss`, `other_loss`); `synthetic_long/mqar_lr*.csv` and `*_curve.csv` | `fig3_mqar.png`, `fig4_recall_split.png`, `table_synthetic_long.md` |
 | E4 long context | `S/long_context.csv` (seed-0 models, 50 PG-19 books, log-spaced position bins) | `fig5_long_context.png` |
