@@ -1,12 +1,18 @@
 # Paper
 
-`main.tex` is the IEEE conference-format paper (`IEEEtran` class). Red `[TODO: ...]` marks show text still to
-be written; every number that fills them comes from [../../results/](../../results/).
+| File | What it is |
+| --- | --- |
+| `main.tex` | The submitted paper: 2 pages, IEEE conference format (`IEEEtran`), one overview figure and one comparison table |
+| `main_extended.tex` | The extended version: every experiment with its own table or figure, the full setup and the learning-rate sweep |
 
-**Compile on Overleaf:** upload `main.tex`, make a folder `figures/` next to it, and upload the PNG files from
-[../../results/figures/](../../results/figures/) into it. Compile with pdfLaTeX.
+Every number in both comes from [../../results/](../../results/); [../../results/README.md](../../results/README.md)
+says which file.
+
+**Compile on Overleaf:** upload the `.tex` file, make a folder `figures/` next to it, and upload the PNG files it
+uses from [../../results/figures/](../../results/figures/) (`main.tex` needs only `fig10_overview.png`). Compile
+with pdfLaTeX.
 
 **Compile locally:** run `pdflatex main.tex` twice in this folder; the figures are found in
 `../../results/figures/`.
 
-The final PDF will be added here as `AFML_Abcd_paper.pdf`.
+The final PDF is [AFML_Abcd_paper.pdf](AFML_Abcd_paper.pdf), compiled from `main.tex` on Overleaf.

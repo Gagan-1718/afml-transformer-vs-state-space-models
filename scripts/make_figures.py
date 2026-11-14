@@ -14,6 +14,7 @@ Inputs (any missing one is skipped) and outputs:
   analysis/S/delta_stats.json                           fig7_memory_horizon.png         E6
   sft/test.csv, sft/lr_sweep.csv                        fig8_sft.png, table_sft.md      E7
   synthetic/{mqar,selective_copy}.csv (4,000 steps)     figA1_synthetic_4000_steps.png, figA2_mqar_width_4000_steps.png
+  S/runs, S/perplexity.csv, S/long_context.csv, bench   fig10_overview.png (4 panels for the 2-page paper)
 """
 import argparse
 import csv
@@ -588,7 +589,94 @@ def table_sft(res, out):
     (out / "table_sft.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
-FIGURES = (fig_training_curves, table_main, fig_time_budget, table_time_budget, fig_selective_copy_long, fig_mqar_long, table_synthetic_long,
+def fig_overview(res, out):
+    """One row of four panels for the 2-page paper: (a) validation loss, (b) test loss by token type relative to
+    the Transformer, (c) PG-19 loss by position, (d) decoding memory. Seed means where there are several seeds."""
+    runs_dir, ppl = res / "S" / "runs", res / "S" / "perplexity.csv"
+    longc, bench = res / "S" / "long_context.csv", res / "bench" / "bench.csv"
+    if not all(p.exists() for p in (runs_dir, ppl, longc, bench)):
+        return
+    fig, axes = plt.subplots(1, 4, figsize=(7.16, 2.0))
+    for ax in axes:
+        ax.tick_params(labelsize=6.5)
+        ax.xaxis.label.set_size(7)
+        ax.yaxis.label.set_size(7)
+
+    # (a) validation loss against training tokens
+    curves = defaultdict(list)
+    for run in sorted(runs_dir.iterdir()):
+        if (run / "summary.json").exists():
+            s = json.loads((run / "summary.json").read_text())
+            curves[arch_of(s)].append([(num(r["tokens"]), num(r["val_loss"])) for r in read_csv(run / "metrics.csv")
+                                       if r.get("val_loss") and num(r["tokens"]) > 0])
+    ax = axes[0]
+    for arch, rs in sorted(curves.items(), key=lambda kv: model_order(kv[0])):
+        n = min(len(r) for r in rs)
+        ax.plot([rs[0][i][0] / 1e6 for i in range(n)], [mean_std([r[i][1] for r in rs])[0] for i in range(n)],
+                color=COLORS[arch], lw=1.5)
+    ax.set(xlabel="Training tokens (millions)", ylabel="Validation loss", ylim=(3.4, 5.0))
+    ax.set_title("(a) Training", fontsize=8, loc="left")
+
+    # (b) test loss on recall-hit and other tokens, minus the Transformer's
+    g = defaultdict(list)
+    for r in read_csv(ppl):
+        g[r["arch"]].append((num(r["hit_loss"]), num(r["other_loss"]), num(r["hit_fraction"])))
+    base = [mean_std([v[j] for v in g["transformer"]])[0] for j in (0, 1)]
+    frac = g["transformer"][0][2]
+    ax = axes[1]
+    for k, arch in enumerate(a for a in ("mamba", "mamba_lti") if a in g):
+        d = [mean_std([v[j] for v in g[arch]])[0] - base[j] for j in (0, 1)]
+        bars = ax.bar([j - 0.19 + 0.38 * k for j in (0, 1)], d, width=0.36, color=COLORS[arch], edgecolor="white",
+                      linewidth=1)
+        ax.bar_label(bars, fmt="%+.2f", fontsize=6, color=INK, padding=1)
+    ax.axhline(0, color=COLORS["transformer"], lw=1.4)
+    ax.text(1.55, 0.03, "Transformer", color=INK, fontsize=6, ha="right", va="bottom")
+    ax.set_xticks([0, 1], [f"copyable\n({100 * frac:.1f}%)", f"other\n({100 * (1 - frac):.1f}%)"], fontsize=6.5)
+    ax.set_xlim(-0.6, 1.6)
+    ax.set_ylim(-0.3, 1.2)
+    ax.set(ylabel="Test loss minus Transformer's")
+    ax.grid(axis="x", visible=False)
+    ax.set_title("(b) Loss by token type", fontsize=8, loc="left")
+
+    # (c) PG-19 loss by position, seed-0 models
+    lc = defaultdict(dict)
+    for r in read_csv(longc):
+        lc[r["arch"]][(int(r["pos_start"]), int(r["pos_end"]))] = num(r["loss"])
+        train_len = int(r["train_seq_len"])
+    ax = axes[2]
+    for arch, bins in sorted(lc.items(), key=lambda kv: model_order(kv[0])):
+        keys = sorted(bins)
+        ax.plot([math.sqrt(max(a, 1) * b) for a, b in keys], [bins[k] for k in keys], color=COLORS[arch], lw=1.5,
+                marker="o", ms=2.5)
+    ax.axvline(train_len, color=MUTED, ls="--", lw=0.8)
+    ax.text(train_len * 0.85, 5.6, "training\nlength", color=MUTED, fontsize=6, ha="right", va="top")
+    ax.set(xscale="log", xlabel="Token position in the book", ylabel="Loss")
+    plain_log_axis(ax.xaxis, fmt=lambda v: f"{v / 1000:g}K" if v >= 1000 else f"{v:g}", subs=(1.0,))
+    ax.set_title("(c) PG-19 books", fontsize=8, loc="left")
+
+    # (d) peak decoding memory at batch 8 (Mamba with the cuda kernel)
+    pts = defaultdict(list)
+    for r in read_csv(bench):
+        if r["status"] == "ok" and r["batch"] == "8" and r["backend"] in ("-", "cuda"):
+            pts[r["arch"]].append((int(r["seq_len"]), num(r["decode_peak_mb"]) / 1024))
+    ax = axes[3]
+    for arch, p in sorted(pts.items(), key=lambda kv: model_order(kv[0])):
+        p.sort()
+        ax.plot([x for x, _ in p], [y for _, y in p], color=COLORS[arch], lw=1.5, marker="o", ms=2.5)
+        ax.text(p[-1][0] * 0.8, p[-1][1] + 0.25, f"{p[-1][1]:.2f} GiB", color=INK, fontsize=6, ha="right")
+    ax.set_xscale("log", base=2)
+    fixed_log_x(ax, [512, 2048, 8192, 32768], fmt=length_label)
+    ax.set(xlabel="Context length (tokens)", ylabel="Decoding memory (GiB)", ylim=(0, 7))
+    ax.set_title("(d) Memory when generating", fontsize=8, loc="left")
+
+    handles = [Line2D([], [], color=COLORS[a], lw=2, label=short_name(a)) for a in COLORS]
+    fig.legend(handles=handles, loc="upper center", ncol=3, fontsize=7.5, bbox_to_anchor=(0.5, 1.09))
+    fig.tight_layout(w_pad=1.2)
+    fig.savefig(out / "fig10_overview.png", dpi=300)
+    plt.close(fig)
+
+
+FIGURES = (fig_overview, fig_training_curves, table_main, fig_time_budget, table_time_budget, fig_selective_copy_long, fig_mqar_long, table_synthetic_long,
            fig_recall_split, fig_long_context, fig_bench, fig_memory_horizon, fig_sft, table_sft, fig_synthetic)
 
 

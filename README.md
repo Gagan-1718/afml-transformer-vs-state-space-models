@@ -25,7 +25,7 @@ does not depend on the input.
 | --- | --- | --- |
 | Code, configs, notebook, results | this repository | complete |
 | Links to the datasets | [deliverables/datasets.md](deliverables/datasets.md) | complete |
-| Paper (IEEE format, PDF) | [deliverables/paper/](deliverables/paper/) | full LaTeX draft (all sections); final edits, then PDF |
+| Paper (IEEE format, PDF) | [deliverables/paper/](deliverables/paper/) | done: [AFML_Abcd_paper.pdf](deliverables/paper/AFML_Abcd_paper.pdf), 2 pages; longer version in `main_extended.tex` |
 | Slide deck (PDF) | [deliverables/slides/](deliverables/slides/) | filled on the course template; final edits, then PDF |
 | Presentation video (at most 7 minutes) | [deliverables/video/](deliverables/video/) | to be recorded |
 
