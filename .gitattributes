@@ -1,0 +1,5 @@
+# never change line endings inside these files
+*.pdf binary
+*.mp4 binary
+*.png binary
+*.npz binary

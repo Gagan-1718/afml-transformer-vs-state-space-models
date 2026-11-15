@@ -1,17 +1,37 @@
 # Swapping Attention for Selective State Spaces
 
-Training and evaluating a Mamba-style small language model against a Transformer of the same size.
+**Training and evaluating a Mamba-style small language model against a Transformer of the same size.**
 
-AFML course project (UE24AM342AA1), PES University. **Team Abcd:**
+AFML course project (UE24AM342AA1), PES University, Team Abcd.
 
-| Name | SRN |
-| --- | --- |
-| Krishna G Pai | PES1UG24AM372 |
-| Dikshith Varma M N | PES1UG24AM363 |
-| Gagandeep N | PES1UG24AM367 |
-| Mallikarjuna Rao R V | PES1UG24AM155 |
+**[Paper](deliverables/paper/AFML_Abcd_paper.pdf)** ·
+**[Slides](deliverables/slides/AFML_Abcd_slides.pdf)** ·
+**[Video](deliverables/video/AFML_Abcd_presentation_video.mp4)** ·
+**[Demo notebook](notebooks/implementation_demo.ipynb)** ·
+**[Datasets](deliverables/datasets.md)** ·
+**[All results](results/)**
 
-## Question
+![Overview: training curves, loss by token type, PG-19 loss by position, memory while generating](results/figures/fig10_overview.png)
+
+## In short
+
+We built a Transformer and a Mamba-style selective state-space model from scratch, gave them the same size
+(about 47M parameters), the same data (FineWeb-Edu) and the same 340M training tokens, and trained both on
+free Kaggle T4 GPUs. A third model, **Mamba-LTI**, is Mamba with selectivity switched off, so we can see what
+selectivity does.
+
+- **Mamba is the better language model:** test loss 3.484 against 3.531, and every Mamba seed beats every
+  Transformer seed.
+- **The Transformer is better at copying from context:** on tokens that already appeared earlier in the text
+  (16.8% of them) its loss is 1.387 against Mamba's 1.762. Mamba wins on the other 83%.
+- **Selectivity is what lets Mamba copy:** without it, Mamba-LTI is the worst of the three, and it loses most
+  on exactly those copyable tokens.
+- **Mamba holds up past its training length:** on PG-19 books, at positions 8K–16K (trained on 1K), the
+  Transformer's loss rises to 5.619 and Mamba's only to 3.879.
+- **Mamba generates with fixed memory, but trains slower on a T4:** 116 MiB against 6,260 MiB at 32K tokens
+  (batch 8), but 8.2–8.5 hours of training against 4.0–4.4 hours for the same tokens.
+
+## The question
 
 We give a Transformer and a Mamba-style selective state-space model the same parameter count (about 47M),
 the same data and the same number of training tokens. How do they compare in language-modelling quality,
@@ -21,13 +41,13 @@ does not depend on the input.
 
 ## Deliverables
 
-| Item | Where | Status |
-| --- | --- | --- |
-| Code, configs, notebook, results | this repository | complete |
-| Links to the datasets | [deliverables/datasets.md](deliverables/datasets.md) | complete |
-| Paper (IEEE format, PDF) | [deliverables/paper/](deliverables/paper/) | done: [AFML_Abcd_paper.pdf](deliverables/paper/AFML_Abcd_paper.pdf), 2 pages; longer version in `main_extended.tex` |
-| Slide deck (PDF) | [deliverables/slides/](deliverables/slides/) | filled on the course template; final edits, then PDF |
-| Presentation video (at most 7 minutes) | [deliverables/video/](deliverables/video/) | to be recorded |
+| Item | File |
+| --- | --- |
+| Paper, IEEE format, 2 pages | [deliverables/paper/AFML_Abcd_paper.pdf](deliverables/paper/AFML_Abcd_paper.pdf) (source: [main.tex](deliverables/paper/main.tex); longer version: [main_extended.tex](deliverables/paper/main_extended.tex)) |
+| Slide deck, 16 slides on the course template | [deliverables/slides/AFML_Abcd_slides.pdf](deliverables/slides/AFML_Abcd_slides.pdf) |
+| Presentation video, 6 min 51 s | [deliverables/video/AFML_Abcd_presentation_video.mp4](deliverables/video/AFML_Abcd_presentation_video.mp4) (use View raw to download) |
+| Dataset links | [deliverables/datasets.md](deliverables/datasets.md) |
+| Code, configs, notebooks, results | this repository |
 
 ## Results at a glance
 
@@ -41,10 +61,12 @@ Kaggle T4 GPU.
 | Test perplexity | 34.14 | **32.59** | 38.88 |
 | Test loss on recall-hit tokens (16.8% of tokens) | **1.387** | 1.762 | 2.416 |
 | Test loss on all other tokens | 3.964 | **3.832** | 3.912 |
+| Selective copying, length 256: best accuracy (one seed) | 93.3% | **99.6%** | 99.7% |
 | PG-19 loss at positions 8K–16K (trained on 1K; seed 0) | 5.619 | **3.879** | 4.102 |
 | Memory while decoding, batch 8, 32K context | 6,260.5 MiB | **116.0 MiB** | not measured |
 | Decode time per new token, batch 8, 32K context | 46.5 ms | **23.9 ms** | not measured |
-| Training time per run | 4.0–4.4 h | 8.2–8.5 h | 7.4–8.1 h |
+| Training time per run | **4.0–4.4 h** | 8.2–8.5 h | 7.4–8.1 h |
+| Response loss after instruction tuning (seed 0) | 2.201 | **2.163** | not tuned |
 
 Mamba numbers for decoding and training use the official `mamba-ssm` kernel (the `cuda` scan backend).
 
@@ -108,6 +130,38 @@ Full tables: [main](results/figures/table_main.md), [synthetic tasks](results/fi
   Mamba's learning rate.
 - **Hardware.** Free T4 GPUs, fp16. Speed and memory numbers describe these implementations on this GPU.
 
+## Demo: ask both models a question
+
+[notebooks/implementation_demo.ipynb](notebooks/implementation_demo.ipynb) loads the two instruction-tuned
+models (E7), asks them the same questions and prints both answers with the time each took. The last cell
+takes your own question. It needs no GPU: in our run on Kaggle's CPU each answer took under two seconds.
+
+To run it on Kaggle: import the notebook, set Accelerator to None and Internet to On, and add the outputs of
+our Kaggle notebooks `afml-sft` (the fine-tuned models) and `afml-data` (the tokenizer) with **Add Input**.
+The model weights are not in this repository because they are too large for GitHub.
+
+Answers from our run (greedy decoding, nothing picked or edited):
+
+| Question | Transformer | Mamba |
+| --- | --- | --- |
+| What is the capital of India? | "The capital of India is the capital of India." | "The capital of India is Delhi." |
+| Classify the sentiment: "I loved this movie, the story was wonderful." | "The sentiment of this review is negative." | "The sentiment of this review is positive." |
+| What is 5 plus 3? | "5 + 3 is equivalent to approximately 5." | "The result of 5 plus 3 is 5." |
+
+Both models learned the answer format from fine-tuning; at 47M parameters they still get facts and arithmetic
+wrong. The fixed prompts we scored in the evaluation are in [results/sft/samples.md](results/sft/samples.md).
+
+## Team
+
+| Name | SRN | Main work |
+| --- | --- | --- |
+| Gagandeep N | PES1UG24AM367 | Code (models, chunked scan, training pipeline, Kaggle notebook), dataset and tokenizer, smoke test, learning-rate sweep, first synthetic runs, main runs (Transformer and Mamba, seed 0), figures, paper, slides |
+| Dikshith Varma M N | PES1UG24AM363 | Main runs (Mamba seed 1, Mamba-LTI seed 1), speed and memory benchmark on the T4, long selective-copying runs, extra MQAR learning rates |
+| Krishna G Pai | PES1UG24AM372 | Main runs (Transformer seed 1, Mamba-LTI seed 0), evaluation stage: test loss and perplexity, copyable-token split, PG-19 long-text test, Δ / memory-horizon analysis |
+| Mallikarjuna Rao R V | PES1UG24AM155 | Main runs (Transformer seed 2, Mamba seed 2), instruction fine-tuning with its learning-rate search, long MQAR runs |
+
+Which account ran which stage, and with which code version, is listed in [results/README.md](results/README.md).
+
 ## Repository layout
 
 ```text
@@ -120,11 +174,17 @@ afml/                     the code
   eval/                   perplexity, long_context, synthetic, bench, analysis
 configs/                  data.json and the parameter-matched model configs
 scripts/                  make_configs, sweep_lr, smoke_report, collect_results, make_figures
-notebooks/run_study.ipynb runs every stage on a free Kaggle (or Colab) GPU
+notebooks/
+  run_study.ipynb         runs every stage on a free Kaggle (or Colab) GPU
+  implementation_demo.ipynb  asks both fine-tuned models the same questions (CPU)
 tests/                    correctness tests: every scan matches the step-by-step reference
 results/                  every number in the paper; README.md maps files to experiments
   figures/                all figures and tables (made by scripts/make_figures.py)
-deliverables/             paper, slides, video and dataset links for the submission
+deliverables/             what we submitted
+  paper/                  AFML_Abcd_paper.pdf, main.tex, main_extended.tex
+  slides/                 AFML_Abcd_slides.pdf
+  video/                  AFML_Abcd_presentation_video.mp4
+  datasets.md             links to every dataset and the exact versions used
 docs/REPRODUCE.md         how to rerun everything, and which team member ran which stage
 ```
 

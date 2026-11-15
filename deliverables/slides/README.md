@@ -1,7 +1,8 @@
 # Slides
 
-The slide deck is built on the course's PowerPoint template. Its figures come from
-[../../results/figures/](../../results/figures/).
+[AFML_Abcd_slides.pdf](AFML_Abcd_slides.pdf) is the submitted deck: 16 slides on the course template. It covers
+the topic, uniqueness, dataset, the hand-drawn design diagram, results, the scoreboard, work done, team
+contributions, learning points, open challenges and references.
 
-The final deck will be added here as `AFML_Abcd_slides.pptx`, together with the PDF that is submitted
-(`AFML_Abcd_slides.pdf`).
+Every figure and number on the slides comes from [../../results/](../../results/); the figures are in
+[../../results/figures/](../../results/figures/).
